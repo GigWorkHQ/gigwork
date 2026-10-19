@@ -8,8 +8,8 @@ type Settlement = {
   amount_raw: string; status: string; phase: string; gas_nonce: string | null;
   gas_signed_tx: Hex | null; gas_tx_hash: Hash | null; payout_nonce: string | null;
   payout_signed_tx: Hex | null; payout_tx_hash: Hash | null; sweep_nonce: string | null;
-  sweep_signed_tx: Hex | null; sweep_tx_hash: Hash | null; asset: "eth" | "usdg";
-  token_address: Address | null; escrow_address: Address; encrypted_private_key: string;
+  sweep_signed_tx: Hex | null; sweep_tx_hash: Hash | null; asset: "usdg";
+  token_address: Address; escrow_address: Address; encrypted_private_key: string;
 };
 
 const waitFor = async (hash: Hash) => {
@@ -80,10 +80,12 @@ export async function processSettlement(jobId: string) {
     if (!settlement) throw new Error("Settlement record is missing.");
     const escrow = loadEscrowAccount(jobId, settlement.encrypted_private_key);
     const gasPrice = await publicClient.getGasPrice();
-    const tokenData = settlement.asset === "usdg"
-      ? encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [settlement.recipient, BigInt(settlement.amount_raw)] })
-      : "0x" as Hex;
-    const payoutGas = settlement.asset === "eth" ? 21_000n : 100_000n;
+    const tokenData = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: "transfer",
+      args: [settlement.recipient, BigInt(settlement.amount_raw)],
+    });
+    const payoutGas = 100_000n;
     const sweepGas = 21_000n;
 
     {
@@ -98,8 +100,8 @@ export async function processSettlement(jobId: string) {
     settlement = await load(jobId);
     {
       const payout = await ensureStageTx(settlement, "payout", {
-        to: settlement.asset === "eth" ? settlement.recipient : settlement.token_address!,
-        value: settlement.asset === "eth" ? BigInt(settlement.amount_raw) : 0n,
+        to: settlement.token_address,
+        value: 0n,
         data: tokenData,
         gas: payoutGas,
         gasPrice,

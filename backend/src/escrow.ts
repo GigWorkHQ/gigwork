@@ -32,13 +32,13 @@ export const publicClient = createPublicClient({ chain, transport: http(config.R
 export const gasAccount = privateKeyToAccount(config.GAS_WALLET_PRIVATE_KEY as `0x${string}`);
 export const gasWalletAddress = gasAccount.address.toLowerCase() as Address;
 
-export type JobAsset = "eth" | "usdg";
+export type JobAsset = "usdg";
 export type FundingTerms = {
   id: string;
   client_wallet: string;
   asset: JobAsset;
   amount_raw: string;
-  token_address: string | null;
+  token_address: string;
 };
 
 export function makeEscrowWallet(jobId: string) {
@@ -92,31 +92,21 @@ export async function verifyJobFunding(
 
   const escrow = escrowAddress.toLowerCase();
   const expectedAmount = BigInt(terms.amount_raw);
-  if (terms.asset === "eth") {
-    if (
-      transaction.to?.toLowerCase() !== escrow ||
-      transaction.value !== expectedAmount ||
-      transaction.input !== "0x"
-    ) {
-      throw new ApiError(422, "funding_amount_mismatch", "Send exactly the listed ETH amount directly to this job escrow address.");
-    }
-  } else {
-    const token = terms.token_address;
-    if (!token || transaction.to?.toLowerCase() !== token.toLowerCase() || transaction.value !== 0n)
-      throw new ApiError(422, "funding_asset_mismatch", "Fund this job with its configured USDG token contract.");
-    const matching = parseEventLogs({
-      abi: erc20Abi,
-      logs: receipt.logs.filter((log) => log.address.toLowerCase() === token.toLowerCase()),
-      eventName: "Transfer",
-      strict: false,
-    }).filter(
-      (event) =>
-        event.args.from?.toLowerCase() === terms.client_wallet.toLowerCase() &&
-        event.args.to?.toLowerCase() === escrow &&
-        event.args.value === expectedAmount,
-    );
-    if (matching.length !== 1)
-      throw new ApiError(422, "funding_amount_mismatch", "Send exactly the listed USDG amount from your wallet to this job escrow address.");
-  }
+  const token = terms.token_address;
+  if (transaction.to?.toLowerCase() !== token.toLowerCase() || transaction.value !== 0n)
+    throw new ApiError(422, "funding_asset_mismatch", "Fund this job with its configured USDG token contract.");
+  const matching = parseEventLogs({
+    abi: erc20Abi,
+    logs: receipt.logs.filter((log) => log.address.toLowerCase() === token.toLowerCase()),
+    eventName: "Transfer",
+    strict: false,
+  }).filter(
+    (event) =>
+      event.args.from?.toLowerCase() === terms.client_wallet.toLowerCase() &&
+      event.args.to?.toLowerCase() === escrow &&
+      event.args.value === expectedAmount,
+  );
+  if (matching.length !== 1)
+    throw new ApiError(422, "funding_amount_mismatch", "Send exactly the listed USDG amount from your wallet to this job escrow address.");
   return { hash, blockNumber: receipt.blockNumber.toString() };
 }

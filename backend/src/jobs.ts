@@ -18,7 +18,7 @@ const createInput = z.object({
   title: z.string().trim().min(3).max(160),
   description: z.string().trim().min(1).max(20_000),
   acceptanceCriteria: z.array(z.string().trim().min(1).max(500)).min(1).max(20),
-  asset: z.enum(["eth", "usdg"]),
+  asset: z.literal("usdg"),
   amount: amountSchema,
 });
 const submissionInput = z.object({
@@ -38,7 +38,7 @@ type JobRow = {
   acceptance_criteria: string[];
   asset: JobAsset;
   amount_raw: string;
-  token_address: string | null;
+  token_address: string;
   status: string;
   deadline_at: Date | null;
   funding_tx_hash: string | null;
@@ -68,7 +68,7 @@ function presentJob(job: JobRow) {
     description: job.description,
     acceptanceCriteria: job.acceptance_criteria,
     asset: job.asset.toUpperCase(),
-    amount: formatUnits(BigInt(job.amount_raw), job.asset === "eth" ? 18 : config.USDG_DECIMALS),
+    amount: formatUnits(BigInt(job.amount_raw), config.USDG_DECIMALS),
     amountRaw: job.amount_raw,
     tokenAddress: job.token_address,
     status: job.status,
@@ -97,11 +97,11 @@ async function appendEvent(
   );
 }
 
-function amountRaw(asset: JobAsset, value: string) {
+function amountRaw(value: string) {
   try {
-    return parseUnits(value, asset === "eth" ? 18 : config.USDG_DECIMALS);
+    return parseUnits(value, config.USDG_DECIMALS);
   } catch {
-    throw new ApiError(400, "invalid_amount", `The ${asset.toUpperCase()} amount has too many decimal places.`);
+    throw new ApiError(400, "invalid_amount", `The USDG amount has too many decimal places.`);
   }
 }
 
@@ -110,9 +110,7 @@ jobsRouter.post(
   requireAuth,
   asyncRoute(async (request, response) => {
     const input = createInput.parse(request.body);
-    if (input.asset === "usdg" && !config.USDG_TOKEN_ADDRESS)
-      throw new ApiError(503, "usdg_unconfigured", "USDG jobs are not enabled until USDG_TOKEN_ADDRESS is configured.");
-    const amount = amountRaw(input.asset, input.amount);
+    const amount = amountRaw(input.amount);
     if (amount <= 0n) throw new ApiError(400, "invalid_amount", "The job amount must be greater than zero.");
     const id = randomUUID();
     const escrow = makeEscrowWallet(id);
@@ -134,7 +132,7 @@ jobsRouter.post(
           JSON.stringify(input.acceptanceCriteria),
           input.asset,
           amount.toString(),
-          input.asset === "usdg" ? config.USDG_TOKEN_ADDRESS!.toLowerCase() : null,
+          config.USDG_TOKEN_ADDRESS.toLowerCase(),
           deadlineAt,
         ],
       );

@@ -1,0 +1,86 @@
+[
+  {
+    "file": "workloom-owl.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "alpha_extrema": [
+      0,
+      255
+    ],
+    "alpha_bbox": [
+      0,
+      0,
+      1240,
+      1254
+    ],
+    "transparent_pixels": 555526,
+    "opaque_pixels": 259,
+    "partial_alpha_pixels": 1016731,
+    "corner_alpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "bytes": 2039678
+  },
+  {
+    "file": "workloom-fox-v2.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "alpha_extrema": [
+      0,
+      255
+    ],
+    "alpha_bbox": [
+      0,
+      9,
+      1253,
+      1254
+    ],
+    "transparent_pixels": 698856,
+    "opaque_pixels": 120,
+    "partial_alpha_pixels": 873540,
+    "corner_alpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "bytes": 1915349
+  },
+  {
+    "file": "workloom-robot.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "alpha_extrema": [
+      0,
+      255
+    ],
+    "alpha_bbox": [
+      0,
+      23,
+      1188,
+      1254
+    ],
+    "transparent_pixels": 670641,
+    "opaque_pixels": 886,
+    "partial_alpha_pixels": 900989,
+    "corner_alpha": [
+      0,
+      0,
+      1,
+      0
+    ],
+    "bytes": 2123132
+  }
+]

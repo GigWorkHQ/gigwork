@@ -1,0 +1,334 @@
+--- PAGE 1 ---
+WORKLOOM · Backend
+Work marketplace: quick tasks, agent tasks, gigs, contracts. Robinhood Chain (4663),
+USDG. Prepared 2026-10-16. (U) = unverified; confirm before the milestone that needs
+it.
+Stack:
+Backend: TypeScript on Bun; Hono + tRPC; Drizzle on Postgres (+ Timescale);
+BullMQ on Redis; viem; Dwellir archive RPC.
+Contracts: Foundry; Solidity 0.8.x.
+Accounts: ZeroDev Kernel passkey accounts (EntryPoint v0.7; ZeroDev/Alchemy
+bundlers), with a second device or backup signer for recovery.
+Clients: web app (main), Telegram mini app (if Telegram's rules allow it, U), mobile
+shell for Local tasks.
+Chain facts:
+USDG: no EIP-3009 or EIP-2612, so all funding uses Permit2 with exact-amount
+signatures (no standing allowances).
+Keepers: no Chainlink Automation, so they're self-hosted, and every money path is
+also callable by anyone.
+Gas: the subsidy ended 2026-09-29, so payouts are batched and sponsored gas is
+capped.
+1. Architecture
+ Agents (MCP/SDK/REST, x402) ─┐       ┌─ Workers (web / mini app / mobile)
+ Clients (web console) ───────┤       │
+                              ▼       ▼
+                            api ─ policy   (classifier + rules + human report queue; every post, every entry point)
+                               ├─ work     (batches, items, gigs, milestones, contracts)
+                               ├─ pricing  (calibrated time estimates → fair-pay floor; realised-rate tracking)
+                               ├─ match    (badges, tiers, languages, region rules)
+                               ├─ quality  (test questions, agreement, format checks, accuracy, appeals)
+                               ├─ attest   (2-of-3 signing of check results)
+                               ├─ review   (reviewer assignment via delayed draw; flat-fee reviewers)
+                               ├─ payouts  (batches, stock-token legs, fallbacks)
+
+--- PAGE 2 ---
+2. Work and policy
+Task batch:
+type (Judge / Verify / Test / Label; Local later);
+instructions;
+items (hashes on-chain, content off-chain);
+k workers per item;
+test-question rate;
+pay per assignment;
+claim time limit;
+review window (contract minimum 24h);
+region and language rules.
+Policy (classifier + rules + human report queue) runs on every post from every entry
+point. Refused:
+illegal tasks;
+anything about or locating individuals;
+impersonation or calls on someone's behalf;
+CAPTCHA or verification bypass;
+fake reviews or engagement;
+graphic or sexual content;
+credential handling;
+collecting personal data. The schema validator blocks contact, personal-data
+and seed-phrase answer fields;
+pay-to-work;
+moving off-platform;
+installing apps or executables;
+connecting wallets, signing transactions or entering payment details;
+creating accounts on other services;
+links failing a safe-browsing/sandbox check;
+academic cheating;
+                               ├─ identity (WorkerPass, device attestation, tiers, sanctions screening)
+                               └─ notify
+ On-chain: TaskEscrow · GigEscrow · PayRuns · PayoutRouter · WorkerPass · StakeVault · WorkHistory · ReviewerSet · BonusVault
+
+--- PAGE 3 ---
+regulated professional work without the worker's own (declared) licence;
+Local tasks outside the allowed categories.
+Test tasks: web apps in a sandboxed browser, or store-distributed test builds, with
+requester-provided synthetic test accounts only.
+Personal data in items: scanned and redacted at post. The requester attests that
+items contain no personal data.
+Fair-pay floor:
+The estimate: from Workloom-run calibration on independent Tier ≥ 1 workers.
+People who fail test questions and anyone clustered with the requester are
+excluded. The 65th-percentile time is used.
+The floor: below $6/hour, the batch can't list.
+During the run: the realised rate is tracked. A breach prompts a topUp. With no
+top-up within 3 days, the unclaimed remainder is cancelled and refunded.
+3. Quality engine
+Test questions:
+mixed in at random; show-rate capped per item; rotated per worker; never shown
+to clustered workers together.
+Requester-written ones are validated against agreement among high-accuracy
+workers. Contested ones are retired automatically.
+Accuracy: per task type. Below 80% over the last 50 test questions pauses that
+type, with appeal and retraining.
+Pay is never cut by test or agreement results. Test items are paid like any item.
+Results feed accuracy and confidence only, for any assignment that passed format
+checks.
+Agreement: weighted (Dawid–Skene style). Low-confidence items get one more
+assignment within budget. Answers on non-test items are correlated to catch copy
+rings.
+Format checks: schema and fields. Test screenshots must come from the tested
+app (U: metadata check). Local photos need signed capture (U), with faces and
+plates blurred.
+4. TaskEscrow (quick and agent tasks)
+
+--- PAGE 4 ---
+Reviewers:
+on-chain ReviewerSet, managed through Safe 2-of-3 + 48h;
+paid a flat fee per case, whatever they decide;
+the fee comes from the requester's review reserve; the reserve is returned only if the
+requester wins.
+Fees: taken only on credited assignments. Refunds include the fee share.
+5. GigEscrow (gigs)
+interface ITaskEscrow {
+    struct Batch {
+        address requester; bytes32 specHash; bytes32 itemsRoot;
+        uint32 assignments; uint96 payPer;
+        uint96 feeReserve;        // 12% (minus verified $WLOOM discount), quote-signed
+        uint96 reviewReserve;     // scales with batch size; requester-funded
+        uint64 claimDeadline;
+        uint64 expiresAt;         // ≥ claimDeadline + claim limit + reviewWindow + 144 h
+        uint32 reviewWindow;      // ≥ 24 h, enforced
+        bytes32 drawSeed;         // fixed at create; used for reviewer draws
+    }
+    function create(Batch calldata b, bytes calldata quoteSig) external returns (uint256 id);
+    function fund(uint256 id) external;                       // exact-amount Permit2; listed only when funded
+    function claim(uint256 id, bytes32 assignmentId) external;   // worker; time-boxed
+    function submit(uint256 id, bytes32 assignmentId, bytes32 answerHash, bool checksPassed, bytes calldata attest) external;
+        // stores submittedAt + checksPassed; locks payPer out of the refundable pool
+    function approve(uint256 id, bytes32 assignmentId) external;            // requester
+    function approveDefault(uint256 id, bytes32 assignmentId) external;     // anyone after reviewWindow with no rejection
+    function reject(uint256 id, bytes32 assignmentId, bytes32 reasonHash) external;  // requester, within window; commits the dispute
+    function draw(uint256 id, bytes32 assignmentId) external;               // anyone, ≥ k blocks after reject: blockhash(rejectBlock + k) ⊕ drawSeed → reviewer, excluding reviewers clustered with the requester
+    function resolve(uint256 id, bytes32 assignmentId, bool workerWins, bytes calldata assignedReviewerSig) external;  // ≤ 72 h after draw
+    function resolveDefault(uint256 id, bytes32 assignmentId) external;
+        // after 72 h: checksPassed → worker credited; else one escalation (new draw); hard cap 144 h → worker credited
+    function cancelUnclaimed(uint256 id) external;            // requester: closes to new claims; refunds unclaimed
+    function refundUnclaimed(uint256 id) external;            // anyone after expiresAt: never-claimed/abandoned only
+    function topUp(uint256 id, uint96 newPayPer, bytes calldata quoteSig) external;  // newPayPer > payPer; funds delta × (remaining + pending) atomically
+}
+interface IGigEscrow {
+    function post(bytes32 specHash, uint96[] calldata amounts, uint64[] calldata deadlines,
+                  uint32 reviewWindow, bytes calldata quoteSig) external returns (uint256 gigId); // reviewWindow ≥ 72 h
+    function fundMilestone(uint256 gigId, uint8 i) external;   // amount + 8% fee + review reserve; gig lists only once milestone 0 is funded
+
+--- PAGE 5 ---
+6. PayRuns (contracts)
+One paidThrough per contract, used by both run and streaming, so nothing is paid
+twice.
+Reserved before work: a period that isn't reserved before it starts pauses the
+contract, and the worker is told before working.
+Admins can never cut into reserved pay.
+Pay statements are generated per run; they're not employment payslips.
+7. Payo u t Ro u t e r, Wo r k H i s t o r y, B o n u sVa u l t
+    function invite(uint256 gigId, address worker) external;   // client
+    function accept(uint256 gigId) external;                   // worker: becomes the assignee
+    function start(uint256 gigId, uint8 i) external;           // worker: marks milestone i started (needs i funded)
+    function progress(uint256 gigId, uint8 i, bytes32 partialHash) external; // worker: optional partial-delivery hash
+    function submit(uint256 gigId, uint8 i, bytes32 deliveryHash) external;
+    function approve(uint256 gigId, uint8 i) external;         // client; or anyone after reviewWindow (approveDefault)
+    function dispute(uint256 gigId, uint8 i, bytes32 reasonHash) external;   // client, within window; delayed draw as TaskEscrow
+    function resolve(uint256 gigId, uint8 i, uint16 workerBps, bytes calldata assignedReviewerSig) external; // split allowed
+    function resolveDefault(uint256 gigId, uint8 i) external;  // one escalation, hard cap 144 h → worker credited for a submitted milestone
+    function extend(uint256 gigId, uint8 i, uint64 newDeadline, bytes calldata workerSig) external; // both agree
+    function cancelUnstarted(uint256 gigId, uint8 i) external; // client, only before start(i): full refund
+    function cancelOverdue(uint256 gigId, uint8 i) external;   // client, after deadline + 72 h grace with no submission:
+                                                               //   no partialHash → refund; partialHash → reviewer split
+}
+interface IPayRuns {
+    function openTeam(address[] calldata admins, uint8 threshold) external returns (uint256 teamId);
+    function fundTeam(uint256 teamId, uint256 amount) external;
+    function offer(uint256 teamId, address worker, uint96 ratePerPeriod, uint32 periodSecs, uint32 noticeSecs, bool stream) external returns (uint256 contractId);
+    function acceptOffer(uint256 contractId) external;                 // worker; contract inactive until accepted
+    function reserveNext(uint256 contractId) external;                 // anyone: reserves the next full period from the unreserved balance
+    function run(uint256 contractId) external;                         // anyone at period end: pays the reserved period (minus streamed); advances paidThrough
+    function withdrawStreamed(uint256 contractId) external;            // worker: accrued since paidThrough, from the reserved period
+    function proposeRate(uint256 contractId, uint96 newRate) external; // admins; effective next period only after worker signs
+    function acceptRate(uint256 contractId) external;                  // worker
+    function endContract(uint256 contractId) external;                 // admins: worker gets max(notice period pay, current reserved period)
+    function withdrawTeam(uint256 teamId, uint256 amount) external;    // admins: unreserved balance only
+}
+
+--- PAGE 6 ---
+Bonuses never sit in the pay path: escrows never call BonusVault, so pay can't
+break if it's empty.
+Bonus caps:
+per WorkerPass;
+5 invites max per referrer;
+referrer↔referee and client↔worker clusters excluded;
+Tier 0 web-fallback accounts excluded.
+Work history entries between clustered client and worker are flagged. Share pages
+show the count of distinct clients.
+8. Identity, anti-abuse, safety
+WorkerPass: device attestation proves a genuine app, not a unique person. So
+tiers, stakes and accuracy history carry the anti-sybil weight, and the web fallback
+gets Tier 0 only.
+Tiers: Tier 0 (no stake, capped volume); Tier 1–2 (USDG stakes of $10 / $50 +
+accuracy history). $WLOOM does not reduce stakes.
+StakeVault:
+exit after 14 days;
+interface IPayoutRouter {
+    function setElection(uint16 stockBps, address[] calldata tokens, uint16[] calldata weights) external;
+        // default 0; allow-listed tokens + pool keys; eligible countries via self-declaration + front-end rules (unverifiable on-chain)
+    function withdraw(uint256 amount) external;                          // worker, any time
+    function payoutBatch(address[] calldata workers) external;           // anyone; ≥ every 6 h
+        // per worker try/catch; stock legs only if oracle fresh + market open + no multiplier change pending;
+        // exact-input swap, min-out ≥ oracle × (1 − 0.5%) with multiplier applied once; protected submission;
+        // batch notional ≤ pool-depth cap; failure → USDG
+    function tip(bytes32 workRef, address token, uint256 amount) external;
+        // only on credited work; ≤ 100% of that item's pay; sanctions-screened; stock legs follow the worker's eligibility, else USDG
+}
+interface IWorkHistory {
+    function addEntry(address worker, bytes32 entryCommit, uint8 kind) external;  // called by escrows on credit (task / milestone / pay run)
+    // entryCommit = hash(kind, client handle, skill, rating, amount, clusterFlag, salt); share links reveal chosen entries + salts
+}
+interface IBonusVault {   // launch only, fixed budget, USDG only
+    function claimInvite(address referee) external;   // pull; referee has ≥ 10 explicitly approved tasks, test accuracy ≥ bar, ≥ 7 days; Tier ≥ 1
+    function claimFirstTasks() external;              // pull; first 5 approved quick tasks, +50%
+}
+
+--- PAGE 7 ---
+at most one freeze per exit request, for a named fraud review, 30 days total, then
+auto-release;
+slashes need 2-of-3 reviewers + one appeal, and are capped.
+Sanctions:
+screened at WorkerPass mint and before submit attestation;
+credited balances are never frozen;
+flagged uncredited pay is held for ≤ 30 days during an appeal, or kept where the
+law requires, and never returned to the requester.
+Fingerprints: hashed; 90-day retention.
+Local tasks:
+requesters get only geofence pass/fail + coarse time;
+EXIF stripped;
+repeat targeting of the same premises rate-limited.
+Requester API: shows pseudonymous worker IDs per batch.
+Every task has "skip without penalty" . Harmful-content reports go to a human
+queue.
+9. Payments in
+USDG: exact-amount Permit2 into the escrow.
+x402 for agents: POST /v1/batches with payTo = TaskEscrow and a Permit2
+witness = batch hash, so create + fund are atomic.
+Pay from Stock Tokens (clients): one atomic user-op from the client's own
+account:
+1. exact-amount Permit2;
+2. exact-output swap to USDG (min-out bound by the oracle, multiplier applied
+once);
+3. reverts if the market is closed or the oracle is stale;
+4. create + fund.
+Escrow holds USDG only.
+
+--- PAGE 8 ---
+10. Data and retention
+Retention:
+Task and gig content is deleted 60 days after close (export before then).
+Fingerprints are kept 90 days.
+Payment and commitment records are kept.
+11. Red team
+Attack / failure Defence
+Scam listings Listed only when funded; quote-signed terms; policy on
+every post
+Requester rejects good
+work, or picks a friendly
+reviewer
+Delayed draw (blockhash after reject + seed from create);
+cluster exclusion; flat-fee reviewers; review reserve lost;
+public rejection rate
+Client cancels after
+work starts
+cancelUnstarted only before start; cancelOverdue with a
+grace period + partial-work split
+Admin drains team
+balance before payday
+Periods reserved before they start; withdrawTeam limited to
+the unreserved balance
+Retroactive rate cutsRate changes need the worker's signature and apply next
+period
+Bad test questions Validated by agreement; retired when contested; pauses
+appealable; pay never cut
+USDG only; pull-based; ≥ 10 explicitly approved tasks +
+requesters (id, address, kind agent|human, rejection_rate, created_at)
+workers    (id, address, pass_id, tier, stake, languages jsonb, region_code, accuracy jsonb, flags jsonb)
+batches    (id, onchain_id, requester_id, type, spec jsonb, k, gold_rate, pay_per, est_minutes_p65, realised_hourly, status, expires_at)
+items      (batch_id, item_id, content_ref, is_gold, gold_answer jsonb NULL, gold_status active|retired)
+assignments(id, batch_id, item_id, worker_ref, claimed_at, submitted_at, answer jsonb, checks jsonb, status, tx)
+gigs       (id, onchain_id, client_id, spec jsonb, assignee, status) ; milestones (gig_id, i, amount, deadline, state, partial_hash, tx)
+contracts  (id, team_id, worker, rate, period_s, notice_s, stream, paid_through, state)
+reviews    (ref, reason_hash, reviewer, draw_block, decision, decided_at, tx)
+payouts    (worker_id, ts, usdg, stock_legs jsonb, tx)
+
+--- PAGE 9 ---
+Bonus farming accuracy + 7 days; Tier ≥ 1; cluster exclusions; small caps;
+fixed budget
+Fake work-history
+entries
+Cluster flags; distinct-client count; entries only from escrow
+credits
+Payout swap
+manipulation
+Allow-list; fresh oracle + market hours; 0.5% bound; per-
+worker fallback; batch cap
+Tips as a side channelOnly on credited work; capped at 100% of item pay; screened
+12. Build order (Claude-Code-sized)
+# Milestone Days
+M1 TaskEscrow (claim/submit/approveDefault/delayed
+draw/resolveDefault/refunds/topUp) + ReviewerSet + fuzz 6
+M2 WorkerPass + device attestation + tiers + StakeVault 4
+M3Policy service + pricing calibration + matching 5
+M4Quality engine (test questions, agreement, appeals) + results API5
+M5 Web app (feed, claim, submit, skip, pay history) + PayoutRouter
+(USDG) + pay handles 5
+— W1–W2 launch —
+M6Agent API/MCP + x402 into escrow; Test/Label tasks 4
+M7 GigEscrow (accept/start/progress/partial split/extend) + client
+dashboard 6
+M8 PayRuns (reserve/run/stream/rate consent/notice) + pay statements6
+M9Stock-token legs + holdings view + tips 4
+M10WorkHistory + share pages; BonusVault; Telegram mini app (if
+allowed) 5
+M11Local tasks 6
+Gates:
+
+--- PAGE 10 ---
+approveDefault, resolveDefault, refundUnclaimed, run, reserveNext,
+payoutBatch and withdraw all work with Workloom services stopped;
+fuzz properties:
+no submitted or disputed assignment refunded;
+no double pay on Pay runs;
+admins can never touch reserved pay;
+cancels never touch started milestones (except via cancelOverdue);
+the reviewer draw can't be predicted at reject time (test against a simulated
+sequencer);
+external review before batch, milestone or team caps go above $5,000.
+13. Honest limits (engineering)
+Workloom runs the attestors and the reviewer set. Reviewers are paid flat fees.
+The delayed draw depends on RHC block hashes, which the sequencer
+controls (U). It's better than a draw in the same transaction, not perfect.
+Device attestation can be beaten by farms. Tiers, stakes and accuracy history
+limit the damage.
+Capture signing, blurring and the Telegram path are (U) until tested.

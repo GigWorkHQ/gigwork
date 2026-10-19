@@ -1,0 +1,340 @@
+--- PAGE 1 ---
+WORKLOOM · Overview
+Do the work. Get paid in USDG, or in stock tokens where
+eligible. Every job is funded before anyone sees it.
+One line: Workloom is the work marketplace for everyday people. You'll find:
+quick phone tasks;
+freelance gigs with milestones;
+part-time contracts paid on a schedule;
+tasks that AI agents need humans for.
+Every job is funded up front, and pay is credited the moment your work is approved.
+Each approved job adds to a work history you own. Pay is in USDG; in eligible countries
+(not the US, UK, Canada or Switzerland; issuer's terms), you can choose to take part of
+it in Robinhood Chain stock tokens.
+Chain: Robinhood Chain (4663), USDG.
+Token: $WLOOM (working ticker; $LOOM is taken), utility only.
+Status: v1 spec, 2026-10-16. Name-check "Workloom" (domains, handles, app stores)
+and the ticker before brand lock.
+1. The gap (recon, Oct 2026)
+Finding (dated) So what
+"Agents hiring humans" went viral, then stalled.
+RentAHuman (launched Feb 1 2026):
+• ~600k sign-ups and ~11,300 open bounties;
+• only ~5,500 jobs completed, with ~50 workers per bounty;
+• scam-like listings and payment errors fixed by hand;
+• no worker-safety policy discussed.
+(Built In, Mar 2026)
+People want this work.
+Trust, pay and safety
+are what's broken:
+most listings never pay
+anyone
+Freelance and gig platforms charge workers ~10–20%
+and hold payouts for days. Stripe's survey of 2,000+
+Workers keep the full
+listed pay; clients pay
+
+--- PAGE 2 ---
+independent workers in 20 countries: fees, slow settlement
+and broken cross-border payouts are the top pains (Stripe,
+2026)
+the fee; pay is credited
+on approval
+150,000+ agentic accounts on Robinhood since May
+2026; a USDG x402 payment rail exists on Robinhood Chain
+(Yahoo Finance, Oct 1 2026; Priors)
+AI agents can post and
+fund human tasks with
+no bank and no card
+Recruiters can't trust what they see: applications are
+flooded with AI-generated material (Mar 2026 reporting)
+A record of approved,
+paid work is a signal
+that's hard to fake
+cheaply
+Category claim (narrowed; (U) until rechecked launch week): "The first work
+marketplace on Robinhood Chain where every job is funded before it's listed and
+workers can choose stock-token pay."
+2. What's on Workloom
+Work typeHow it works
+Quick
+tasks
+1–3 minute tasks from your phone, no experience needed:
+• rate two AI answers;
+• try a sign-up flow and report what broke;
+• tag images;
+• check a translation in your language.
+Each shows its estimated hourly rate
+Agent
+tasks
+Batches from AI agents and their builders: Judge, Verify, Test and Label,
+with test questions and agreement checks. Agents post by API or MCP and
+fund in USDG
+Gigs
+Projects from people and businesses: design, writing, video editing,
+development, translation, online tutoring, research, virtual assistance. Split
+into milestones. A gig is listed only once its first milestone is funded,
+and every later milestone is funded before work on it starts
+Contracts
+Ongoing part-time work, paid in Pay runs (weekly or monthly). The current
+period is reserved in full before it starts, and pay can stream by the
+second
+Local
+(later,
+Checks in public commercial places only (is the shop open, shelf price,
+menu photo). Faces and plates are blurred. Never about a person, never on
+
+--- PAGE 3 ---
+strict) private property
+3. Built for everyday people
+Part What you get
+60-
+second
+start
+Face ID passkey, no seed phrase, no ID. Web app first; a Telegram mini app
+where Telegram's rules allow it (U). Your first quick task is ready before
+setup ends
+Fair-pay
+floor
+Every item shows its estimated hourly rate. Work below $6/hour
+(estimated) isn't listed, and the real rate is tracked as tasks are done
+Skill
+ladder
+Pass short tests to unlock better-paid work: Judge → Expert Judge (by
+subject), Tester → QA Lead, Translator by language. Gigs and contracts
+open up as your record grows
+Pay
+that's
+yours
+fast
+Credited on approval. Withdraw any time (gas covered up to 10 times a
+month) or get it in the next payout (≤ 6h). No fees on your pay
+Choose
+how
+you're
+paid
+USDG by default. In eligible countries, you can choose to take a share in
+stock tokens. The default is 0%. Tokens are listed neutrally (no suggested
+picks), and you see a risk screen before any split is set. If a swap can't run
+(market closed, price feed stale), that part arrives as USDG
+Holdings
+view
+Your stock-token balances at today's value next to what you were paid. No
+forecasts, no advice
+Your pay
+handle
+A short handle (@maya.design) using the chain's handle standard, so
+clients and agents pay you without copying addresses
+Work
+history
+Every approved task, milestone and Pay run adds an entry to your
+WorkerPass: work type, date, client rating, badges. You choose what to
+share. Viewers can check entries against the chain. See the privacy note in
+§8
+Tips
+Clients can add a tip on approved work, in USDG or an allow-listed stock
+token (capped at 100% of that item's pay; labelled as a stock token, not a
+share)
+Launch
+Invite a friend: both get $3 in USDG after the friend completes 10 approved
+
+--- PAGE 4 ---
+bonuses
+(USDG
+only)
+tasks, with test-question accuracy above the bar, over at least 7 days.
+First tasks: +50% on your first 5 approved quick tasks.
+Both come from a fixed launch budget, are capped per WorkerPass and end
+when the budget is used
+For
+clients
+Post a gig in 2 minutes; invite workers by handle; see work histories; pay by
+milestone or Pay run; pay in USDG, or from Stock Tokens you hold
+(converted to USDG at funding)
+4. How work gets paid
+Silence counts as approval: if the client or agent doesn't review in time, the work
+is credited automatically. Anyone can trigger this; Workloom isn't needed.
+Workers never pay review fees. The client funds a review reserve, which goes
+back to the client only if they win.
+Clients can cancel only unstarted work. Once a worker has started a milestone,
+the only way out is the deadline-plus-grace path, where a reviewer can split the pay
+for partial work.
+5. Why it wins
+1. Every listing is real money, funded before anyone sees it.
+2. Workers keep the full listed pay, credited on approval, with a fair-pay floor and
+protections against unfair rejection.
+3. Many kinds of work in one app: a few minutes on the bus, a freelance project or a
+steady contract.
+4. Agents and people both hire here, with the same escrow and the same rules.
+5. Choice of pay: USDG anywhere; stock tokens where eligible, as the worker's
+choice.
+6. Fees
+Quick / agent tasks:  funded batch ─▶ claim (time-boxed) ─▶ submit ─▶ automatic checks ─▶ review window ─▶ credited
+Gigs:                 milestone funded ─▶ worker accepts + starts ─▶ submit ─▶ review window ─▶ credited
+Contracts:            next period reserved ─▶ work ─▶ Pay run (or stream) ─▶ credited
+Disagreement:         reason required ─▶ reviewer assigned (drawn after a delay) ─▶ ≤ 72 h ─▶ one escalation max ─▶ default rules (§Backend)
+
+--- PAGE 5 ---
+Line Price
+Agent and quick-
+task batches 12% on top, paid by the requester
+Gigs 8% on top of each milestone, paid by the client
+Pay runs 1% of each run, capped at $15
+Worker fees None. Swap costs on a stock-token share come out of that share
+(route cost only, no Workloom markup)
+Tips Tipper pays route cost; no Workloom fee
+Reviews From the client's review reserve; workers never pay
+Launch bonusesFixed launch budget (proposed $20k), not from fees or anyone's
+pay
+$WLOOM (utility only): lower client fees (up to 3 points) and early access to new
+work types. It doesn't change stakes or anti-abuse rules, and it pays nothing out.
+Split of fees:
+80% to running the work (checks, reviewers, payout gas, support);
+10% treasury;
+5% for client-discount funding;
+5% burn.
+7. L a u n c h
+One line: "Do the work. Get paid the moment it's approved."
+Three sentences:
+1. Workloom pays you for quick tasks, gigs and contracts, and every job is funded
+before you see it.
+2. You keep the full listed pay, credited on approval.
+3. Where eligible, you can choose to take part of it in stock tokens.
+Demo clip: a worker rates 40 AI answers on the bus → credited $7.10 → takes a design
+gig → milestone 1 funded, delivered, approved → pay arrives, with 10% as a stock token
+by her own choice.
+
+--- PAGE 6 ---
+8. Kill criteria (set now; all cluster-filtered)
+Day Metric If missed
+14
+≥ 5,000
+WorkerPasses; ≥
+30% complete a
+paid task; ≥ 2,000
+paid assignments; ≥
+25 paying
+requesters
+Cause test; simplify onboarding; narrow to Judge +
+Verify
+30
+≥ $20k paid to
+workers; realised
+median hourly rate
+≥ the floor
+Keep only the 2 best task types
+30
+(gigs)
+≥ 300 funded
+milestones; ≥ 150
+workers paid for
+gigs
+Narrow to the 3 best gig categories
+60
+≥ 40% of
+requesters post
+again; ≥ 40 teams
+on Pay runs
+Keep Pay runs as a feature; focus on tasks + gigs
+90 < $50k monthly
+paid to workers
+Wind-down: new listings stop. Everything in progress
+finishes through its normal path. Unclaimed batches,
+unstarted milestones and unreserved team balances
+refund on-chain. Stakes return on schedule. The
+leftover bonus budget goes back to the treasury
+Exit is never gated. Each of these works on-chain with Workloom offline:
+refunds of unclaimed or unstarted work;
+default approvals;
+Pay runs;
+withdrawals.
+Stakes return 14 days after leaving. Any freeze is a single, time-limited one.
+
+--- PAGE 7 ---
+9. Honest limits
+Workers and pay
+Workers are independent and pseudonymous. Workloom doesn't employ
+anyone, withhold tax or provide benefits. Clients are responsible for how they
+classify the people they hire. Taxes are the worker's responsibility.
+Workers must be 18 or older (self-declared; no ID checks).
+Pay floors are estimates. The realised rate is shown and tracked.
+Sanctions screening: payout addresses are screened against public sanctions
+lists. A flagged worker's not-yet-credited pay can be held for up to 30 days during
+an appeal; credited balances are never frozen. This is the one exception to "never
+gated".
+Trust and reviews
+Workloom runs the check attestors and chooses and pays the reviewers.
+Reviewers are paid a flat fee whatever they decide. Two-of-three signing protects
+against one leaked server, not against Workloom. Reviews can be wrong.
+Privacy
+Payouts are public on-chain (address and amount). Clients see pseudonymous IDs
+in the app.
+Sharing your work history reveals your payout address, and through it your
+public pay history. Use a fresh payout address per client if that matters to you.
+Your work histor y proves approved, paid work, not independent quality
+checks. It shows how many distinct clients stand behind your entries, and entries
+between linked accounts are marked.
+Stock tokens
+They're issuer products, not shares. They carry no shareholder rights and their
+prices move.
+Eligibility is self-declared plus front-end geo rules; the contract can't verify it.
+Whether the issuer's terms allow holding tokens bought through a DEX by
+wallets with no ID is (U). If not, payouts stay USDG.
+Workloom gives no investment advice.
+Platform
+Telegram's mini-app rules for blockchain features may restrict a Robinhood
+Chain app (U). The web app is the main path.
+
+--- PAGE 8 ---
+Some work isn't allowed:
+anything illegal;
+tasks about, or locating, individuals;
+impersonation;
+CAPTCHA or verification bypass;
+fake reviews or engagement;
+graphic or sexual content;
+credential handling;
+collecting personal data;
+pay-to-work;
+moving off-platform;
+installing apps, connecting wallets or entering payment details;
+creating accounts on other services;
+academic cheating;
+regulated professional work without the worker's own licence.
+Local tasks carry real-world risk. They're limited to public commercial places,
+blurred, and always skippable.
+USDG on Robinhood Chain. Chain and issuer events are outside Workloom's
+control.
+10. What not to say
+Never:
+"own the stocks", "get paid in Nvidia" or any named-stock hook;
+"free stocks";
+"earn", "passive income", "get rich";
+"salary", "employer", "payslip" (say "pay statement");
+"employment";
+"guaranteed work";
+"rent a human", "AI boss";
+"yield";
+"investment advice";
+"rewards" for ordinary pay;
+"partner" for any chain, issuer or AI company.
+
+--- PAGE 9 ---
+Say instead:
+funded before it's listed, credited on approval, you keep the full listed pay;
+stock tokens where eligible (issuer's terms).
+11. Roadmap
+# Ships
+W1TaskEscrow + WorkerPass + quick tasks (Judge, Verify) + test questions + web app
+W2Reviews (delayed draw), default rules, payouts, pay handles
+W3Agent API/MCP + x402 funding; Test and Label tasks; tiers
+W4Gigs (milestones, accept/start, partial-work path) + client dashboard
+W5Contracts + Pay runs (reserved periods, streaming, pay statements)
+W6Stock-token payout choice (eligible countries) + holdings view + tips
+W7Work history sharing; launch bonuses (USDG); Telegram mini app (if allowed)
+W8Local tasks (strict categories, blurring, signed capture)
+Sources:
+Built In: What is RentAHuman (Mar 2026)
+Stripe: what platform workers want from cross-border payouts (2026)
+Yahoo Finance: Robinhood agentic accounts (Oct 1 2026)
+x402 on Robinhood Chain (Priors)

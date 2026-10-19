@@ -6,7 +6,7 @@ The ZIP contains the current website source and build, not the owner's hosting/a
 
 The launcher serves `dist/` over loopback, supports nested routes and needs only Node. It is a local preview utility, not a production server. All runtime media/fonts are local. Source briefs, guides for developers and evidence remain outside `public`/`dist`.
 
-Run `pnpm install --frozen-lockfile`, then `pnpm build`. Deploy only `dist` with HTTPS and SPA fallback to `index.html`. Missing static assets should return 404. Check `/`, `/app/overview`, `/app/work`, `/app/work/WL-1049` and `/docs/getting-started` on a fresh browser. Never publish the source PDFs or environment files.
+Run `bun install --frozen-lockfile`, then `bun run build`. For local development, use `bun run dev`; deploy only `dist` with HTTPS and SPA fallback to `index.html`. Missing static assets should return 404. Check `/`, `/app/overview`, `/app/work`, `/app/work/WL-1049` and `/docs/getting-started` on a fresh browser. Never publish the source PDFs or environment files.
 
 The portable ZIP omits `.openai/hosting.json` (the owner's Site binding), Git metadata and local plugin state. Local running/building need none of these. Use a separate deployment or explicitly granted access to the owner's hosting. Do not copy credentials into source.
 

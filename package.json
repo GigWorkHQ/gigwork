@@ -1,8 +1,8 @@
 {
   "name": "gigwork", "version": "1.0.0", "private": true, "type": "module",
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "bun@1.4.2",
   "engines": {"node": ">=22.12.0"},
-  "scripts": {"start": "node scripts/serve.mjs --open", "dev": "vite --host 127.0.0.1", "build": "vite build", "preview": "vite preview --host 127.0.0.1", "test": "node --test src/domain.test.js"},
+  "scripts": {"start": "node scripts/serve.mjs --open", "dev": "bun ./node_modules/vite/bin/vite.js --host 127.0.0.1", "build": "bun ./node_modules/vite/bin/vite.js build", "preview": "bun ./node_modules/vite/bin/vite.js preview --host 127.0.0.1", "test": "node --test src/domain.test.js"},
   "dependencies": {"react": "^19.1.1", "react-dom": "^19.1.1", "lucide-react": "^0.468.0"},
   "devDependencies": {"vite": "^7.1.7"}
 }

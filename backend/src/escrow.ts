@@ -41,6 +41,12 @@ export type FundingTerms = {
   token_address: string;
 };
 
+type FundingProof = {
+  transaction: { chainId?: number | null; from: string; to?: string | null; value: bigint; input: string };
+  receipt: { status: string; blockNumber: bigint; logs: readonly unknown[] };
+  latestBlock: bigint;
+};
+
 export function makeEscrowWallet(jobId: string) {
   const privateKey = generatePrivateKey();
   const account = privateKeyToAccount(privateKey);
@@ -62,6 +68,47 @@ export function parseHash(value: string): Hash {
   return value.toLowerCase() as Hash;
 }
 
+export function validateUsdgFunding(
+  terms: FundingTerms,
+  escrowAddress: string,
+  hash: Hash,
+  proof: FundingProof,
+) {
+  const { receipt, transaction, latestBlock } = proof;
+  if (receipt.status !== "success") throw new ApiError(422, "funding_failed", "The funding transaction reverted.");
+  if (transaction.chainId !== config.RH_CHAIN_ID)
+    throw new ApiError(422, "wrong_chain", "The transaction was not sent on the configured Robinhood Chain network.");
+  if (transaction.from.toLowerCase() !== terms.client_wallet.toLowerCase())
+    throw new ApiError(422, "funding_wallet_mismatch", "The job client must fund escrow from their signed-in wallet.");
+
+  const requiredBlock = receipt.blockNumber + BigInt(config.RH_CONFIRMATIONS - 1);
+  if (latestBlock < requiredBlock)
+    throw new ApiError(409, "funding_confirmations_pending", "The funding transaction needs more confirmations.");
+
+  const escrow = escrowAddress.toLowerCase();
+  const token = terms.token_address;
+  if (transaction.to?.toLowerCase() !== token.toLowerCase() || transaction.value !== 0n)
+    throw new ApiError(422, "funding_asset_mismatch", "Fund this job with its configured USDG token contract.");
+  const tokenLogs = receipt.logs.filter((log) => {
+    if (!log || typeof log !== "object" || !("address" in log)) return false;
+    return typeof log.address === "string" && log.address.toLowerCase() === token.toLowerCase();
+  });
+  const matching = parseEventLogs({
+    abi: erc20Abi,
+    logs: tokenLogs as never,
+    eventName: "Transfer",
+    strict: false,
+  }).filter(
+    (event) =>
+      event.args.from?.toLowerCase() === terms.client_wallet.toLowerCase() &&
+      event.args.to?.toLowerCase() === escrow &&
+      event.args.value === BigInt(terms.amount_raw),
+  );
+  if (matching.length !== 1)
+    throw new ApiError(422, "funding_amount_mismatch", "Send exactly the listed USDG amount from your wallet to this job escrow address.");
+  return { hash, blockNumber: receipt.blockNumber.toString() };
+}
+
 export async function verifyJobFunding(
   terms: FundingTerms,
   escrowAddress: string,
@@ -78,35 +125,6 @@ export async function verifyJobFunding(
   } catch {
     throw new ApiError(409, "funding_not_confirmed", "The funding transaction is not available yet.");
   }
-  if (receipt.status !== "success")
-    throw new ApiError(422, "funding_failed", "The funding transaction reverted.");
-  if (transaction.chainId !== config.RH_CHAIN_ID)
-    throw new ApiError(422, "wrong_chain", "The transaction was not sent on the configured Robinhood Chain network.");
-  if (transaction.from.toLowerCase() !== terms.client_wallet.toLowerCase())
-    throw new ApiError(422, "funding_wallet_mismatch", "The job client must fund escrow from their signed-in wallet.");
-
   const latestBlock = await publicClient.getBlockNumber();
-  const requiredBlock = receipt.blockNumber + BigInt(config.RH_CONFIRMATIONS - 1);
-  if (latestBlock < requiredBlock)
-    throw new ApiError(409, "funding_confirmations_pending", "The funding transaction needs more confirmations.");
-
-  const escrow = escrowAddress.toLowerCase();
-  const expectedAmount = BigInt(terms.amount_raw);
-  const token = terms.token_address;
-  if (transaction.to?.toLowerCase() !== token.toLowerCase() || transaction.value !== 0n)
-    throw new ApiError(422, "funding_asset_mismatch", "Fund this job with its configured USDG token contract.");
-  const matching = parseEventLogs({
-    abi: erc20Abi,
-    logs: receipt.logs.filter((log) => log.address.toLowerCase() === token.toLowerCase()),
-    eventName: "Transfer",
-    strict: false,
-  }).filter(
-    (event) =>
-      event.args.from?.toLowerCase() === terms.client_wallet.toLowerCase() &&
-      event.args.to?.toLowerCase() === escrow &&
-      event.args.value === expectedAmount,
-  );
-  if (matching.length !== 1)
-    throw new ApiError(422, "funding_amount_mismatch", "Send exactly the listed USDG amount from your wallet to this job escrow address.");
-  return { hash, blockNumber: receipt.blockNumber.toString() };
+  return validateUsdgFunding(terms, escrowAddress, hash, { transaction, receipt, latestBlock });
 }

@@ -15,35 +15,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
-    name: Validate backend
+  test:
+    name: Type-check and test
     if: github.repository == 'gigworkhq/gigwork'
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://test:test@localhost:5432/gigwork_test
+      RH_CHAIN_ID: "46630"
+      RH_RPC_URL: http://127.0.0.1:8545
+      USDG_TOKEN_ADDRESS: "0x0000000000000000000000000000000000000001"
+      USDG_DECIMALS: "6"
+      RH_CONFIRMATIONS: "2"
+      AUTH_DOMAIN: localhost
+      AUTH_URI: http://localhost:3001
+      AUTH_TOKEN_PEPPER: gigwork-ci-auth-pepper-0123456789abcdef
+      DATA_ENCRYPTION_KEY: gigwork-ci-encryption-key-0123456789
+      GAS_WALLET_PRIVATE_KEY: "0x1111111111111111111111111111111111111111111111111111111111111111"
+      CRON_SECRET: gigwork-ci-cron-secret-0123456789abcdef
+      TEAM_WALLET_ADDRESSES: "0x2222222222222222222222222222222222222222"
+      TRUST_PROXY: "0"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
 
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.2
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Install backend dependencies
         working-directory: backend
-        run: bun install --frozen-lockfile --ignore-scripts
+        run: bun install --frozen-lockfile
 
       - name: Type-check backend
         working-directory: backend
         run: bun run check
 
-  package:
-    name: Build and publish backend image
-    needs: validate
-    if: github.repository == 'gigworkhq/gigwork' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+      - name: Run backend unit suites
+        working-directory: backend
+        run: bun run test
+
+      - name: Run frontend domain suite
+        run: bun run test
+
+  build:
+    name: Build backend image
+    needs: test
+    if: github.repository == 'gigworkhq/gigwork' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -51,32 +75,109 @@ jobs:
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
-      - name: Set image name
-        run: echo "IMAGE_NAME=ghcr.io/gigworkhq/gigwork-backend" >> "$GITHUB_ENV"
+      - name: Build backend image archive
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          build-args: GIT_SHA=${{ github.sha }}
+          tags: ghcr.io/gigworkhq/gigwork-backend:${{ github.sha }}
+          outputs: type=docker,dest=./gigwork-backend.tar
 
-      - name: Log in to GHCR
-        if: github.event_name == 'push'
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
+      - name: Store backend image for publishing
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: gigwork-backend-image
+          path: gigwork-backend.tar
+          retention-days: 1
+
+  publish:
+    name: Publish backend image
+    needs: build
+    if: github.repository == 'gigworkhq/gigwork' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ghcr.io/gigworkhq/gigwork-backend
+    steps:
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate image tags
-        id: metadata
-        uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e
         with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=long
+          name: gigwork-backend-image
 
-      - name: Build backend image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+      - name: Publish immutable and latest tags
+        env:
+          IMAGE_NAME: ghcr.io/gigworkhq/gigwork-backend
+        run: |
+          docker load --input gigwork-backend.tar
+          docker tag "$IMAGE_NAME:$GITHUB_SHA" "$IMAGE_NAME:latest"
+          docker push "$IMAGE_NAME:$GITHUB_SHA"
+          docker push "$IMAGE_NAME:latest"
+
+  deploy:
+    name: Deploy and verify backend
+    needs: publish
+    if: github.repository == 'gigworkhq/gigwork' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger deployment and verify readiness
+        env:
+          DEPLOY_HOOK: ${{ secrets.BACKEND_DEPLOY_HOOK_URL }}
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "::error::Set BACKEND_DEPLOY_HOOK_URL in the production environment secrets."
+            exit 1
+          fi
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::error::Set BACKEND_URL in the production environment variables."
+            exit 1
+          fi
+          curl --fail --silent --show-error --request POST "$DEPLOY_HOOK"
+          BACKEND_URL="${BACKEND_URL%/}"
+          for attempt in $(seq 1 60); do
+            commit=$(curl --silent --max-time 5 "$BACKEND_URL/health" | jq -r '.commit // empty' || true)
+            if [ "$commit" = "$GITHUB_SHA" ] && \
+              curl --fail --silent --max-time 5 "$BACKEND_URL/health/ready" > /dev/null; then
+              echo "Commit $GITHUB_SHA is serving and ready."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Commit $GITHUB_SHA was not serving and ready at $BACKEND_URL within 10 minutes."
+          exit 1
+
+  release:
+    name: Create backend release
+    needs: deploy
+    if: github.repository == 'gigworkhq/gigwork' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: ${{ github.event_name == 'push' }}
-          build-args: GIT_SHA=${{ github.sha }}
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
+          fetch-depth: 0
+
+      - id: tag
+        name: Create release tag
+        run: echo "name=backend-$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Push release tag
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.name }}
+        run: git tag "$RELEASE_TAG" && git push origin "$RELEASE_TAG"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          generate_release_notes: true

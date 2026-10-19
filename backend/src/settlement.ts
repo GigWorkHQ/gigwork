@@ -12,6 +12,24 @@ type Settlement = {
   token_address: Address; escrow_address: Address; encrypted_private_key: string;
 };
 
+export function usdgPayoutTransaction(recipient: Address, tokenAddress: Address, amountRaw: string, gasPrice: bigint) {
+  return {
+    to: tokenAddress,
+    value: 0n,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, BigInt(amountRaw)] }),
+    gas: 100_000n,
+    gasPrice,
+  };
+}
+
+export function escrowGasReserve(gasPrice: bigint) {
+  return gasPrice * (100_000n + 21_000n + 30_000n) * 2n;
+}
+
+export function escrowSweepAmount(balance: bigint, gasPrice: bigint) {
+  return balance - gasPrice * 21_000n;
+}
+
 const waitFor = async (hash: Hash) => {
   const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: config.RH_CONFIRMATIONS });
   if (receipt.status !== "success") throw new Error(`Transaction ${hash} reverted.`);
@@ -80,16 +98,10 @@ export async function processSettlement(jobId: string) {
     if (!settlement) throw new Error("Settlement record is missing.");
     const escrow = loadEscrowAccount(jobId, settlement.encrypted_private_key);
     const gasPrice = await publicClient.getGasPrice();
-    const tokenData = encodeFunctionData({
-      abi: erc20Abi,
-      functionName: "transfer",
-      args: [settlement.recipient, BigInt(settlement.amount_raw)],
-    });
-    const payoutGas = 100_000n;
     const sweepGas = 21_000n;
 
     {
-      const reserve = gasPrice * (payoutGas + sweepGas + 30_000n) * 2n;
+      const reserve = escrowGasReserve(gasPrice);
       const gasTx = await ensureStageTx(settlement, "gas", {
         to: settlement.escrow_address, value: reserve, gas: 21_000n, gasPrice,
       }, gasAccount);
@@ -99,13 +111,12 @@ export async function processSettlement(jobId: string) {
 
     settlement = await load(jobId);
     {
-      const payout = await ensureStageTx(settlement, "payout", {
-        to: settlement.token_address,
-        value: 0n,
-        data: tokenData,
-        gas: payoutGas,
-        gasPrice,
-      }, escrow);
+      const payout = await ensureStageTx(
+        settlement,
+        "payout",
+        usdgPayoutTransaction(settlement.recipient, settlement.token_address, settlement.amount_raw, gasPrice),
+        escrow,
+      );
       await sendPersisted(payout.raw, payout.hash);
       await db.query("UPDATE job_settlements SET phase='sweep',updated_at=now() WHERE job_id=$1", [jobId]);
     }
@@ -115,7 +126,7 @@ export async function processSettlement(jobId: string) {
       await sendPersisted(settlement.sweep_signed_tx, settlement.sweep_tx_hash);
     } else {
       const balance = await publicClient.getBalance({ address: settlement.escrow_address });
-      const sweepValue = balance - gasPrice * sweepGas;
+      const sweepValue = escrowSweepAmount(balance, gasPrice);
       if (sweepValue > 0n) {
         const sweep = await ensureStageTx(settlement, "sweep", {
           to: gasWalletAddress, value: sweepValue, gas: sweepGas, gasPrice,

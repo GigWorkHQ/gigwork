@@ -8,6 +8,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "migrate": "bun src/db/migrate.ts",
+    "test": "bun test",
     "check": "tsc --noEmit"
   },
   "dependencies": {

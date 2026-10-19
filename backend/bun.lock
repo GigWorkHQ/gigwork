@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@jobsai/backend",
+      "name": "@gigwork/backend",
       "dependencies": {
         "dotenv": "16.6.1",
         "express": "5.1.0",

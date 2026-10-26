@@ -2,6 +2,19 @@
 
 Snapshot: 18 October 2026. This describes the code that exists now. Suggested command/API shapes below are **proposals**, not implemented endpoints. The backend brief explicitly names `POST /v1/batches` for x402 create-and-fund; it does not define a complete REST API.
 
+## Live jobs slice (implemented 26 October 2026)
+
+`/app/jobs` and `/app/team` are connected to the GigWork backend; every other `/app/*` screen remains the labeled local preview and never falls back to live data or vice versa.
+
+| File | Role |
+| --- | --- |
+| `src/api.js` | Fetch client. Base URL from `VITE_API_BASE_URL` (default `https://gigwork-api-uhpj.onrender.com`). Bearer session kept in `localStorage` (`gigwork-session-v1`) and cleared on logout, expiry or any 401. |
+| `src/wallet.js` | EIP-1193 helpers: connect, chain switch, `personal_sign` of the exact server SIWE message, and an ERC-20 `transfer` to the job escrow. No keys or RPC secrets in the browser. |
+| `src/live.js` | Pure rules mirrored from the backend: status labels, role/action gating, amount/job/submission validation. Tested in `src/live.test.js`. |
+| `src/LiveJobs.jsx`, `src/live.css` | Wallet sign-in, open/my jobs, create → fund (wallet transfer or pasted tx hash, retried until confirmations land) → claim → submit → request changes / accept / dispute, and the team dispute console. |
+
+Chain ID, chain name, explorer, USDG address/decimals and confirmations come from the public `GET /v1/config` endpoint, not UI constants. The backend only answers browser requests from origins in `CORS_ORIGINS` (comma-separated; defaults to the `AUTH_URI` origin). `AUTH_DOMAIN`/`AUTH_URI` should match the deployed frontend host so wallets show the correct sign-in domain.
+
 ## Runtime and routes
 
 React + Vite, plain CSS, lucide-react. `src/main.jsx` selects marketing, `Docs` or `Dashboard` from `location.pathname`. Navigation uses native links; hosting needs SPA fallback. `Dashboard` selects the third path segment. `Marketplace` reads `/app/work/:id` and has a not-found state.

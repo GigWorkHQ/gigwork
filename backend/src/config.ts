@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
+import { parseAllowedOrigins } from "./cors.js";
 
 const env = z
   .object({
@@ -13,6 +14,7 @@ const env = z
     RH_CONFIRMATIONS: z.coerce.number().int().min(1).max(100).default(2),
     AUTH_DOMAIN: z.string().min(1).default("localhost"),
     AUTH_URI: z.string().url().default("http://localhost:4174"),
+    CORS_ORIGINS: z.string().default(""),
     AUTH_TOKEN_PEPPER: z.string().min(32),
     DATA_ENCRYPTION_KEY: z.string().min(32),
     TEAM_WALLET_ADDRESSES: z.string().default(""),
@@ -27,6 +29,7 @@ if (env.DATA_ENCRYPTION_KEY === env.AUTH_TOKEN_PEPPER) {
 }
 
 export const config = env;
+export const allowedOrigins = parseAllowedOrigins(env.CORS_ORIGINS, env.AUTH_URI);
 export const teamWallets = new Set(
   env.TEAM_WALLET_ADDRESSES.split(",")
     .map((address) => address.trim().toLowerCase())

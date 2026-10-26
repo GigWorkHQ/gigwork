@@ -2,7 +2,9 @@ import { timingSafeEqual } from "node:crypto";
 import express, { Router } from "express";
 import { z } from "zod";
 import { createSession, issueNonce, requireAuth, revokeSession } from "./auth.js";
-import { config } from "./config.js";
+import { allowedOrigins, config } from "./config.js";
+import { corsMiddleware } from "./cors.js";
+import { chain } from "./escrow.js";
 import { db } from "./db/index.js";
 import { jobsRouter, teamJobsRouter } from "./jobs.js";
 import { ApiError, asyncRoute, errorHandler } from "./http.js";
@@ -10,6 +12,7 @@ import { reconcileSettlements } from "./settlement.js";
 
 const app = express();
 app.set("trust proxy", config.TRUST_PROXY);
+app.use(corsMiddleware(allowedOrigins));
 app.use(express.json({ limit: "256kb" }));
 
 app.get("/health", (_request, response) =>
@@ -19,6 +22,18 @@ app.get("/health/ready", asyncRoute(async (_request, response) => {
   await db.query("SELECT 1");
   response.json({ status: "ready" });
 }));
+
+app.get("/v1/config", (_request, response) =>
+  response.json({
+    data: {
+      chainId: chain.id,
+      chainName: chain.name,
+      explorerUrl: chain.blockExplorers.default.url,
+      usdg: { address: config.USDG_TOKEN_ADDRESS.toLowerCase(), decimals: config.USDG_DECIMALS },
+      confirmations: config.RH_CONFIRMATIONS,
+    },
+  }),
+);
 
 const authRouter = Router();
 authRouter.post("/nonce", asyncRoute(async (request, response) => {

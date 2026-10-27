@@ -2,14 +2,14 @@ import { app } from "./app.js";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
 import { migrate } from "./db/migrate.js";
-import { reconcileSettlements } from "./settlement.js";
+import { runKeeper } from "./keeper.js";
 
 await migrate();
 const server = app.listen(config.PORT, "0.0.0.0", () => {
   console.log(`GigWork API listening on port ${config.PORT}`);
 });
 const reconciliationTimer = setInterval(() => {
-  void reconcileSettlements().catch((error) => console.error("Settlement reconciliation failed:", error));
+  void runKeeper().catch((error) => console.error("Keeper run failed:", error));
 }, 30_000);
 reconciliationTimer.unref();
 

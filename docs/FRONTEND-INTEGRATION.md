@@ -15,6 +15,28 @@ Snapshot: 18 October 2026. This describes the code that exists now. Suggested co
 
 Chain ID, chain name, explorer, USDG address/decimals and confirmations come from the public `GET /v1/config` endpoint, not UI constants. The backend only answers browser requests from origins in `CORS_ORIGINS` (comma-separated; defaults to the `AUTH_URI` origin). `AUTH_DOMAIN`/`AUTH_URI` should match the deployed frontend host so wallets show the correct sign-in domain.
 
+## Platform features (implemented 27 October 2026)
+
+Everything in the sidebar group **Live on Robinhood Chain** is connected. The preview group below it is unchanged sample data.
+
+| Route | File | What it does | API |
+| --- | --- | --- | --- |
+| `/app/jobs` | `LiveJobs.jsx` | Jobs, plus client cancel (unfunded → cancelled, unclaimed → refunded, claimed and 72h past deadline with no submission → refunded), default approval after `JOB_REVIEW_HOURS`, tips | `/v1/jobs/*` incl. `POST /:id/cancel` |
+| `/app/tasks` | `LiveTasks.jsx` | Quick tasks. Workers: list, claim under a lease, submit/skip, dispute a rejection. Clients: create batch (≥ 6 USDG/estimated hour, review ≥ 24h), fund, approve/reject/approve-all, close (unused balance refunded) | `/v1/tasks/*`, `/v1/batches/*` |
+| `/app/live-gigs` | `LiveGigs.jsx` | Milestone gigs: invite by handle/wallet or list publicly once the first milestone is funded; fund each milestone; start/submit/revise/approve; dispute (reviewer may split); cancel only unstarted or overdue milestones | `/v1/gigs/*` |
+| `/app/payruns` | `LiveContracts.jsx` | Contracts: offer/accept, reserve pay periods back to back, automatic Pay run at period end, rate change with worker consent, end (unstarted periods refunded), CSV pay statement | `/v1/contracts/*` |
+| `/app/earnings` | `LiveAccount.jsx` | Payouts and refunds with tx links, tips received, work history built only from completed escrow payouts, share selected entries at `/h/:slug` | `/v1/payouts`, `/v1/history*`, `/v1/public/history/:slug` |
+| `/app/account` | `LiveAccount.jsx` | Pay handle, stock-token payout choice, referral code/bonuses, agent API keys | `/v1/me*`, `/v1/payouts/*`, `/v1/referrals*` |
+| `/app/reviewing` | `LiveReviews.jsx` | Reviewer queue (only for wallets the team added) | `/v1/reviews/*` |
+| `/app/team` | `LiveReviews.jsx` | Team console: all review cases, job disputes, reviewer list, bonus budget wallet | `/v1/team/*` |
+| `/h/:slug` | `SharedHistory.jsx` | Public share page; recomputes each entry's salted SHA-256 commitment in the browser and links payout transactions | `/v1/public/history/:slug` |
+
+Backend pieces: `backend/db/migrations/003_platform.sql`; `ledger.ts` (per-batch/gig/contract escrow wallets, verified deposits, idempotent payouts with gas top-ups sharing the gas-wallet nonce lock); `batches.ts`, `gigs.ts`, `contracts.ts`, `reviews.ts`, `account.ts`; `keeper.ts` runs every 30s and on `POST /v1/cron/settle` (lease expiry, default approvals, expiry refunds, Pay runs, reviewer draws/redraws/escalation, payout retries).
+
+**Rules as implemented.** Reviewer draw happens `REVIEW_DRAW_DELAY_MINUTES` (60) after a dispute using a CSPRNG over active reviewers excluding both parties; deadline `REVIEW_DEADLINE_HOURS` (72); one redraw, then escalation to the team. Workers can dispute a quick-task rejection within `DISPUTE_WINDOW_HOURS` (72). Tips are direct client→worker USDG transfers on credited work, capped at 100% of the item's pay. Referral: each code admits `REFERRAL_MAX_INVITES` (5) people in their first 14 days; after `REFERRAL_MIN_APPROVED` (10) approved items and `REFERRAL_MIN_DAYS` (7), both sides can pull-claim `REFERRAL_BONUS_USDG` (3) from the bonus vault (address in the team console); an empty vault leaves bonuses claimable. Agent API keys (`gwk_…`, hashed at rest) act as their owner but cannot manage keys or log out; batches they create are marked `agent`.
+
+**Deliberate limits.** No platform fees are charged (workers and clients pay listed amounts only). Stock-token payouts: `STOCK_TOKENS` lists electable tokens and `STOCK_EXCLUDED_COUNTRIES` blocks regions, but no swap route is implemented, so every payout is sent in USDG and records the fallback. Escrows are backend-held keys, not audited contracts; nothing pays out if the API and its database are down.
+
 ## Runtime and routes
 
 React + Vite, plain CSS, lucide-react. `src/main.jsx` selects marketing, `Docs` or `Dashboard` from `location.pathname`. Navigation uses native links; hosting needs SPA fallback. `Dashboard` selects the third path segment. `Marketplace` reads `/app/work/:id` and has a not-found state.

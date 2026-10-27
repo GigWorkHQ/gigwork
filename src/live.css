@@ -52,3 +52,60 @@
  .live-toolbar-actions{width:100%;justify-content:space-between}
  .wallet-chip b{display:none}
 }
+/* Platform screens: quick tasks, gigs, contracts, pay & history, account, reviews, shared history. */
+.type-dot{display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--green);vertical-align:1px}
+.type-dot.blue{background:#8fd0ff}.type-dot.pink{background:#ffb3d9}.type-dot.yellow{background:#f2d64b}.type-dot.purple{background:#c6b6ff}
+.live-row-detail{display:grid;gap:10px;padding:0 16px 14px;border-bottom:1px solid var(--line)}
+.live-row-detail p{margin:0;font-size:13px}
+.row-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.task-prompt{display:grid;gap:6px;margin:16px 0;padding:16px;border-radius:12px;background:#f5f6f9}
+.task-prompt span{font-size:11px;color:var(--muted)}
+.task-prompt p{margin:0;font-size:15px}
+.metric-grid.live-metrics{display:grid;gap:10px;margin:0 0 18px}
+.live-metrics>div{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:white}
+.live-metrics span{font-size:12px;color:var(--muted)}
+.live-metrics b{display:flex;align-items:center;gap:6px;font-size:18px}
+.live-history h4{justify-content:space-between}
+.milestone-list{display:grid;gap:10px;margin-top:18px}
+.milestone-card{border:1px solid var(--line);border-radius:14px;background:white;overflow:hidden}
+.milestone-card.open{border-color:var(--navy)}
+.milestone-head{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:12px;width:100%;padding:14px 16px;border:0;background:none;text-align:left;font:inherit;cursor:pointer}
+.milestone-head span.mono{font-size:12px;color:var(--muted)}
+.milestone-head strong{font-size:14px;white-space:nowrap}
+.milestone-body{display:grid;gap:12px;padding:0 16px 16px}
+.milestone-body .fund-panel,.milestone-body .live-text-action{margin-top:0}
+.milestone-body>.btn{justify-self:start}
+.milestone-body p.field-note{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0}
+.milestone-editor{display:grid;gap:8px;margin:18px 0}
+.milestone-editor h4{margin:0;font-size:14px}
+.milestone-edit-row{display:grid;grid-template-columns:24px 1fr 110px 80px 34px;gap:8px;align-items:center}
+.milestone-edit-row input{min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px}
+.milestone-edit-row .mono{font-size:12px;color:var(--muted)}
+.milestone-editor .text-link{justify-self:start}
+.share-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0 8px}
+.share-bar input{flex:1 1 220px;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px}
+.history-row{grid-template-columns:24px minmax(0,1.6fr) .6fr .6fr;cursor:pointer}
+.history-row input{width:17px;height:17px;accent-color:var(--navy)}
+.handle-current{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#fbfbfd}
+.handle-current b{font-size:16px}
+.handle-current span{color:var(--muted);font-size:12px;word-break:break-all}
+.check-row{display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.check-row input{margin-top:2px;accent-color:var(--navy)}
+.key-reveal{display:block;margin-top:6px;word-break:break-all;font-size:12px}
+.split-input{width:64px;margin:0 6px;padding:4px 8px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.field-note svg{vertical-align:-2px}
+.share-page{min-height:100vh;background:var(--paper,#f7f7f2)}
+.share-header{display:flex;justify-content:space-between;align-items:center;padding:20px 32px;border-bottom:1px solid var(--line);background:white}
+.share-main{display:grid;gap:18px;max-width:960px;margin:0 auto;padding:40px 24px 80px}
+.share-main h1{margin:0;font-size:clamp(28px,4vw,44px)}
+.share-who{display:flex;flex-wrap:wrap;gap:10px;margin:0;color:var(--muted)}
+.share-who b{color:var(--navy)}
+.share-main .work-row a{display:inline-flex;align-items:center;gap:4px;margin-right:8px;text-decoration:underline}
+@media (max-width:760px){
+ .milestone-head{grid-template-columns:auto 1fr;}
+ .milestone-head strong,.milestone-head .pill{grid-column:2}
+ .milestone-edit-row{grid-template-columns:20px 1fr 80px 56px 30px}
+ .history-row{grid-template-columns:24px 1fr}
+ .share-header{padding:16px}
+}
+.sidebar nav[aria-label="Preview navigation"]{margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}

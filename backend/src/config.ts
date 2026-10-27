@@ -21,6 +21,17 @@ const env = z
     GAS_WALLET_PRIVATE_KEY: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
     CRON_SECRET: z.string().min(32),
     TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(1),
+    JOB_REVIEW_HOURS: z.coerce.number().int().min(24).max(336).default(72),
+    REVIEW_DRAW_DELAY_MINUTES: z.coerce.number().int().min(0).max(1440).default(60),
+    REVIEW_DEADLINE_HOURS: z.coerce.number().int().min(1).max(336).default(72),
+    DISPUTE_WINDOW_HOURS: z.coerce.number().int().min(1).max(336).default(72),
+    REFERRAL_BONUS_USDG: z.string().regex(/^\d+(\.\d+)?$/).default("3"),
+    REFERRAL_MAX_INVITES: z.coerce.number().int().min(0).max(100).default(5),
+    REFERRAL_MIN_APPROVED: z.coerce.number().int().min(1).max(1000).default(10),
+    REFERRAL_MIN_DAYS: z.coerce.number().int().min(0).max(365).default(7),
+    // Comma list of SYMBOL:0xaddress stock tokens workers may elect. Empty keeps payouts USDG-only.
+    STOCK_TOKENS: z.string().default(""),
+    STOCK_EXCLUDED_COUNTRIES: z.string().default("US,GB,CA,CH"),
   })
   .parse(process.env);
 
@@ -34,4 +45,16 @@ export const teamWallets = new Set(
   env.TEAM_WALLET_ADDRESSES.split(",")
     .map((address) => address.trim().toLowerCase())
     .filter(Boolean),
+);
+export const stockTokens = env.STOCK_TOKENS.split(",")
+  .map((entry) => entry.trim())
+  .filter(Boolean)
+  .map((entry) => {
+    const [symbol, address] = entry.split(":");
+    if (!/^[A-Z0-9.]{1,12}$/.test(symbol ?? "") || !/^0x[0-9a-fA-F]{40}$/.test(address ?? ""))
+      throw new Error(`Invalid STOCK_TOKENS entry: ${entry}`);
+    return { symbol, address: address.toLowerCase() };
+  });
+export const stockExcludedCountries = new Set(
+  env.STOCK_EXCLUDED_COUNTRIES.split(",").map((code) => code.trim().toUpperCase()).filter(Boolean),
 );

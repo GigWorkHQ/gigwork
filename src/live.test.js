@@ -47,3 +47,22 @@ test('USDG transfer calldata encodes recipient and raw amount',()=>{
  assert.throws(()=>transferData('0x12','1'));
  assert.throws(()=>transferData(other,'0'));
 });
+
+test('raw conversion, batch pricing and drafts',async()=>{
+ const {toRaw,validateBatchDraft,batchPayload,batchTotal,parseItems,validateGigDraft,gigPayload,validateContractDraft}=await import('./live.js');
+ assert.equal(toRaw('12.5'),'12500000');assert.equal(toRaw('0.000001'),'1');assert.equal(toRaw('3'),'3000000');
+ assert.deepEqual(parseItems('Q1 | A | B\n\nQ2'),[{prompt:'Q1',options:['A','B']},{prompt:'Q2',options:[]}]);
+ const batch={title:'Judge answers',instructions:'Pick the clearer of the two answers.',taskType:'judge',pay:'0.48',minutes:'2',workersPerItem:'3',reviewHours:'24',items:'Q1|A|B\nQ2|A|B'};
+ assert.deepEqual(validateBatchDraft(batch),{});
+ assert.ok(validateBatchDraft({...batch,pay:'0.1'}).pay,'below hourly floor');
+ assert.ok(validateBatchDraft({...batch,reviewHours:'12'}).reviewHours);
+ assert.ok(validateBatchDraft({...batch,items:'Q1|A'}).items);
+ assert.equal(batchPayload(batch).items.length,2);assert.equal(batchTotal('0.48',2,3),'2.88');
+ const gig={title:'Brand guide',description:'Six pages',category:'Design',reviewHours:'72',worker:'@maya',milestones:[{title:'Direction',amount:'120',dueDays:'7'},{title:'Final',amount:'60',dueDays:''}]};
+ assert.deepEqual(validateGigDraft(gig),{});
+ assert.deepEqual(gigPayload(gig).milestones,[{title:'Direction',amount:'120',dueDays:7},{title:'Final',amount:'60'}]);
+ assert.ok(validateGigDraft({...gig,worker:'not a handle!'}).worker);
+ assert.ok(validateGigDraft({...gig,milestones:[{title:'',amount:'1'}]}).milestones);
+ assert.deepEqual(validateContractDraft({worker:'@maya',title:'Weekly review',description:'x',rate:'180',periodDays:7}),{});
+ assert.ok(validateContractDraft({worker:'@maya',title:'Weekly review',description:'x',rate:'180',periodDays:10}).periodDays);
+});

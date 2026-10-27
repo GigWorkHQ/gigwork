@@ -30,13 +30,23 @@ export function escrowSweepAmount(balance: bigint, gasPrice: bigint) {
   return balance - gasPrice * 21_000n;
 }
 
+export class RevertedError extends Error {}
+
+// Shared with escrow transfers so the gas wallet never signs two transactions with one nonce.
+export const GAS_WALLET_LOCK = 73301822;
+export async function gasNonceFloor(client: { query: (text: string) => Promise<{ rows: any[] }> }) {
+  const result = await client.query(
+    `SELECT (GREATEST((SELECT MAX(gas_nonce) FROM job_settlements),(SELECT MAX(nonce) FROM gas_topups))+1)::text AS next_nonce`);
+  return result.rows[0].next_nonce ? Number(result.rows[0].next_nonce) : 0;
+}
+
 const waitFor = async (hash: Hash) => {
   const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: config.RH_CONFIRMATIONS });
-  if (receipt.status !== "success") throw new Error(`Transaction ${hash} reverted.`);
+  if (receipt.status !== "success") throw new RevertedError(`Transaction ${hash} reverted.`);
   return receipt;
 };
 
-async function sendPersisted(raw: Hex, hash: Hash) {
+export async function sendPersisted(raw: Hex, hash: Hash) {
   try { await publicClient.sendRawTransaction({ serializedTransaction: raw }); }
   catch (error) {
     const message = String(error).toLowerCase();
@@ -60,18 +70,18 @@ async function signAndPersist(jobId: string, stage: "gas" | "payout" | "sweep", 
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock(73301822)");
+    await client.query("SELECT pg_advisory_xact_lock($1)", [GAS_WALLET_LOCK]);
     const current = await client.query<any>(`SELECT ${nonceColumn},${signedColumn},${hashColumn} FROM job_settlements WHERE job_id=$1 FOR UPDATE`, [jobId]);
     if (current.rows[0][signedColumn]) {
       await client.query("COMMIT");
       return { raw: current.rows[0][signedColumn] as Hex, hash: current.rows[0][hashColumn] as Hash };
     }
     const pending = await publicClient.getTransactionCount({ address: account.address, blockTag: "pending" });
-    const previous = stage === "gas"
-      ? await client.query<{ next_nonce: string | null }>(`SELECT (MAX(gas_nonce)+1)::text AS next_nonce FROM job_settlements WHERE gas_nonce IS NOT NULL`)
-      : await client.query<{ next_nonce: string | null }>(
-          `SELECT (GREATEST(COALESCE(payout_nonce,-1),COALESCE(sweep_nonce,-1))+1)::text AS next_nonce FROM job_settlements WHERE job_id=$1`, [jobId]);
-    const nonce = Math.max(pending, previous.rows[0].next_nonce ? Number(previous.rows[0].next_nonce) : 0);
+    const floor = stage === "gas"
+      ? await gasNonceFloor(client)
+      : Number((await client.query<{ next_nonce: string }>(
+          `SELECT (GREATEST(COALESCE(payout_nonce,-1),COALESCE(sweep_nonce,-1))+1)::text AS next_nonce FROM job_settlements WHERE job_id=$1`, [jobId])).rows[0].next_nonce);
+    const nonce = Math.max(pending, floor);
     const raw = await account.signTransaction({ ...tx, nonce, chainId: config.RH_CHAIN_ID, type: "legacy" });
     const hash = keccak256(raw);
     await client.query(`UPDATE job_settlements SET ${nonceColumn}=$2,${signedColumn}=$3,${hashColumn}=$4,updated_at=now() WHERE job_id=$1`,

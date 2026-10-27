@@ -9,6 +9,7 @@ import { jobAssetSchema, parseUsdgAmount, usdgAmountSchema } from "./currency.js
 import { decryptPayload, encryptPayload, payloadDigest } from "./crypto.js";
 import { db } from "./db/index.js";
 import { assertCanDispute, assertCanRequestRevision, assertCanSubmit, assertClaimable, assertSettlementAllowed } from "./lifecycle.js";
+import { casesFor, openReviewCase, registerReviewSubject } from "./reviews.js";
 import { makeEscrowWallet, verifyJobFunding, type FundingTerms, type JobAsset } from "./escrow.js";
 import { ApiError, asyncRoute } from "./http.js";
 import { processSettlement } from "./settlement.js";
@@ -52,10 +53,13 @@ type JobRow = {
   claimed_at: Date | null;
   submitted_at: Date | null;
   settled_at: Date | null;
+  review_due_at: Date | null;
+  client_handle: string | null;
+  doer_handle: string | null;
 };
 
 const jobSelect = `SELECT j.*, c.wallet_address AS client_wallet, d.wallet_address AS doer_wallet,
-    ew.address AS escrow_address
+    c.handle AS client_handle, d.handle AS doer_handle, ew.address AS escrow_address
   FROM jobs j JOIN users c ON c.id=j.client_id
   LEFT JOIN users d ON d.id=j.doer_id
   JOIN job_escrow_wallets ew ON ew.job_id=j.id`;
@@ -65,6 +69,8 @@ function presentJob(job: JobRow) {
     id: job.id,
     clientWallet: job.client_wallet,
     doerWallet: job.doer_wallet,
+    clientHandle: job.client_handle ? `@${job.client_handle}` : null,
+    doerHandle: job.doer_handle ? `@${job.doer_handle}` : null,
     title: job.title,
     description: job.description,
     acceptanceCriteria: job.acceptance_criteria,
@@ -82,6 +88,7 @@ function presentJob(job: JobRow) {
     claimedAt: job.claimed_at,
     submittedAt: job.submitted_at,
     settledAt: job.settled_at,
+    reviewDueAt: job.review_due_at,
   };
 }
 
@@ -187,7 +194,8 @@ jobsRouter.get(
       teamWallets.has(request.auth!.walletAddress.toLowerCase());
     if (!allowed && job.status !== "ready")
       throw new ApiError(404, "job_not_found", "This job does not exist.");
-    response.json({ data: presentJob(job) });
+    const review = (await casesFor("job", [id])).get(id) ?? null;
+    response.json({ data: { ...presentJob(job), review } });
   }),
 );
 
@@ -314,8 +322,9 @@ jobsRouter.post(
         [id, request.auth!.userId, revision, encryptPayload(payload, `submission:${id}:${revision}`), payloadDigest(payload)],
       );
       await client.query(
-        "UPDATE jobs SET status='submitted',active_submission_id=$2,submitted_at=now(),updated_at=now() WHERE id=$1",
-        [id, inserted.rows[0].id],
+        `UPDATE jobs SET status='submitted',active_submission_id=$2,submitted_at=now(),
+           review_due_at=now()+make_interval(hours => $3),updated_at=now() WHERE id=$1`,
+        [id, inserted.rows[0].id, config.JOB_REVIEW_HOURS],
       );
       await appendEvent(client, id, request.auth!.userId, "job.submitted", { submissionId: inserted.rows[0].id, revision });
       await client.query("COMMIT");
@@ -446,6 +455,7 @@ jobsRouter.post(
         [id, request.auth!.userId, encryptPayload(reason, `dispute:${id}`), payloadDigest(reason)],
       );
       await client.query("UPDATE jobs SET status='disputed',updated_at=now() WHERE id=$1", [id]);
+      await openReviewCase(client, { subjectKind: "job", subjectId: id, clientId: job.client_id, workerId: job.doer_id!, openedBy: request.auth!.userId, reason });
       await appendEvent(client, id, request.auth!.userId, "job.disputed");
       await client.query("COMMIT");
       response.status(201).json({ data: { jobId: id, status: "disputed" } });
@@ -458,13 +468,20 @@ jobsRouter.post(
   }),
 );
 
-async function createSettlement(jobId: string, actorId: string, cause: string, outcome: "pay_doer" | "refund_client", existingClient?: PoolClient) {
+const settlementEvents: Record<string, string> = {
+  client_acceptance: "job.accepted",
+  default_approval: "job.default_approved",
+  client_cancel: "job.cancelled",
+  expiry: "job.expired",
+};
+
+async function createSettlement(jobId: string, actorId: string | null, cause: string, outcome: "pay_doer" | "refund_client", existingClient?: PoolClient) {
   const client = existingClient ?? await db.connect();
   const ownsTransaction = !existingClient;
   try {
     if (ownsTransaction) await client.query("BEGIN");
-    const result = await client.query<{ status: string; client_id: string; doer_id: string | null; amount_raw: string; client_wallet: string; doer_wallet: string | null }>(
-      `SELECT j.status,j.client_id,j.doer_id,j.amount_raw::text,c.wallet_address AS client_wallet,d.wallet_address AS doer_wallet
+    const result = await client.query<{ status: string; client_id: string; doer_id: string | null; amount_raw: string; client_wallet: string; doer_wallet: string | null; deadline_at: Date | null; active_submission_id: string | null }>(
+      `SELECT j.status,j.client_id,j.doer_id,j.amount_raw::text,j.deadline_at,j.active_submission_id,c.wallet_address AS client_wallet,d.wallet_address AS doer_wallet
        FROM jobs j JOIN users c ON c.id=j.client_id LEFT JOIN users d ON d.id=j.doer_id WHERE j.id=$1 FOR UPDATE OF j`,
       [jobId],
     );
@@ -479,7 +496,7 @@ async function createSettlement(jobId: string, actorId: string, cause: string, o
       job.amount_raw,
     ]);
     await client.query("UPDATE jobs SET status='settlement_pending',updated_at=now() WHERE id=$1", [jobId]);
-    await appendEvent(client, jobId, actorId, cause === "client_acceptance" ? "job.accepted" : "job.dispute_resolved", { outcome });
+    await appendEvent(client, jobId, actorId, settlementEvents[cause] ?? "job.dispute_resolved", { outcome, cause });
     if (ownsTransaction) await client.query("COMMIT");
     return { jobId, status: "settlement_pending", outcome };
   } catch (error) {
@@ -541,6 +558,12 @@ teamJobsRouter.post("/disputes/:jobId/resolve", asyncRoute(async (request, respo
       `UPDATE job_disputes SET resolution=$2,resolution_note_ciphertext=$3,resolved_by=$4,resolved_at=now() WHERE job_id=$1`,
       [id, input.outcome, encryptPayload(input.note, `resolution:${id}`), request.auth!.userId],
     );
+    await client.query(
+      `UPDATE review_cases SET status='resolved',resolution=$2,worker_share_bps=$3,note_ciphertext=$4,resolved_by=$5,resolved_at=now()
+       WHERE subject_kind='job' AND subject_id=$1 AND status<>'resolved'`,
+      [id, input.outcome === "pay_doer" ? "pay_worker" : "refund_client", input.outcome === "pay_doer" ? 10_000 : 0,
+        encryptPayload(input.note, `review-note-job:${id}`), request.auth!.userId],
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -552,3 +575,89 @@ teamJobsRouter.post("/disputes/:jobId/resolve", asyncRoute(async (request, respo
   void processSettlement(id).catch((error) => console.error(`Settlement ${id} failed to start:`, error));
 }));
 
+
+const kickSettlement = (id: string) => void processSettlement(id).catch((error) => console.error(`Settlement ${id} failed to start:`, error));
+
+// Cancel: an unfunded job is simply cancelled; a funded, unclaimed job (or a claimed one long overdue with
+// nothing submitted) is refunded to the client from escrow.
+jobsRouter.post(
+  "/:id/cancel",
+  requireAuth,
+  asyncRoute(async (request, response) => {
+    const id = uuid.parse(request.params.id);
+    const unfunded = await db.query(
+      `UPDATE jobs SET status='cancelled',updated_at=now() WHERE id=$1 AND client_id=$2 AND status='awaiting_funding' RETURNING id`,
+      [id, request.auth!.userId],
+    );
+    if (unfunded.rowCount) {
+      await appendEvent(db, id, request.auth!.userId, "job.cancelled", { funded: false });
+      response.json({ data: { jobId: id, status: "cancelled" } });
+      return;
+    }
+    const result = await createSettlement(id, request.auth!.userId, "client_cancel", "refund_client");
+    response.status(202).json({ data: result });
+    kickSettlement(id);
+  }),
+);
+
+registerReviewSubject("job", {
+  allowsSplit: false,
+  async resolve(client, jobId, outcome, _share, actorId) {
+    const dispute = await client.query("SELECT id FROM job_disputes WHERE job_id=$1 AND resolution IS NULL FOR UPDATE", [jobId]);
+    if (!dispute.rowCount) throw new ApiError(409, "dispute_already_resolved", "This dispute is already resolved.");
+    const mapped = outcome === "pay_worker" ? "pay_doer" : "refund_client";
+    await createSettlement(jobId, actorId, "review_resolution", mapped, client);
+    await client.query(
+      "UPDATE job_disputes SET resolution=$2,resolved_by=$3,resolved_at=now() WHERE job_id=$1",
+      [jobId, mapped, actorId],
+    );
+    return () => kickSettlement(jobId);
+  },
+  async describe(jobId) {
+    const [job, submissions, revisions] = await Promise.all([
+      db.query<JobRow>(`${jobSelect} WHERE j.id=$1`, [jobId]),
+      db.query<{ id: string; revision: number; payload_ciphertext: string; created_at: Date }>(
+        "SELECT id,revision,payload_ciphertext,created_at FROM job_submissions WHERE job_id=$1 ORDER BY revision", [jobId]),
+      db.query<{ id: string; feedback_ciphertext: string; created_at: Date; revision: number }>(
+        `SELECT r.id,r.feedback_ciphertext,r.created_at,s.revision FROM job_revisions r
+         JOIN job_submissions s ON s.id=r.submission_id WHERE r.job_id=$1 ORDER BY r.created_at`, [jobId]),
+    ]);
+    const j = presentJob(job.rows[0]);
+    return {
+      kind: "job",
+      title: j.title,
+      brief: j.description,
+      criteria: j.acceptanceCriteria,
+      amount: j.amount,
+      client: j.clientHandle ?? j.clientWallet,
+      worker: j.doerHandle ?? j.doerWallet,
+      escrowAddress: j.escrowAddress,
+      submissions: submissions.rows.map(({ payload_ciphertext, revision, ...row }) => ({ ...row, revision, ...JSON.parse(decryptPayload(payload_ciphertext, `submission:${jobId}:${revision}`)) })),
+      revisions: revisions.rows.map(({ feedback_ciphertext, revision, ...row }) => ({ ...row, revision, feedback: decryptPayload(feedback_ciphertext, `revision:${jobId}:${revision}`) })),
+    };
+  },
+});
+
+// Keeper step: default approval after the review window, refunds for unclaimed jobs past their deadline,
+// and expiry of jobs that were never funded.
+export async function advanceJobs() {
+  const due = await db.query<{ id: string }>(
+    "SELECT id FROM jobs WHERE status='submitted' AND review_due_at<now() ORDER BY review_due_at LIMIT 50",
+  );
+  for (const { id } of due.rows) {
+    try { await createSettlement(id, null, "default_approval", "pay_doer"); kickSettlement(id); }
+    catch (error) { console.error(`Default approval for job ${id} failed:`, error); }
+  }
+  const expired = await db.query<{ id: string }>(
+    "SELECT id FROM jobs WHERE status='ready' AND deadline_at<now() ORDER BY deadline_at LIMIT 50",
+  );
+  for (const { id } of expired.rows) {
+    try { await createSettlement(id, null, "expiry", "refund_client"); kickSettlement(id); }
+    catch (error) { console.error(`Expiry refund for job ${id} failed:`, error); }
+  }
+  const stale = await db.query<{ id: string }>(
+    `UPDATE jobs SET status='expired',updated_at=now()
+     WHERE status='awaiting_funding' AND (deadline_at<now() OR created_at<now()-interval '30 days') RETURNING id`,
+  );
+  for (const { id } of stale.rows) await appendEvent(db, id, null, "job.expired", { funded: false });
+}

@@ -9,7 +9,17 @@ type SettlementJob = {
   doer_id: string | null;
   doer_wallet: string | null;
   status: string;
+  deadline_at?: Date | null;
+  active_submission_id?: string | null;
 };
+
+export const OVERDUE_GRACE_MS = 72 * 3_600_000;
+
+// A claimed job whose deadline passed more than 72 hours ago with nothing submitted can be cancelled.
+export function isOverdueWithoutSubmission(job: Pick<SettlementJob, "status" | "deadline_at" | "active_submission_id">, now = new Date()) {
+  return job.status === "in_progress" && !job.active_submission_id && Boolean(job.deadline_at) &&
+    job.deadline_at!.getTime() + OVERDUE_GRACE_MS <= now.getTime();
+}
 
 export function assertClaimable(job: ClaimableJob, actorId: string, now = new Date()) {
   if (job.client_id === actorId)
@@ -43,7 +53,7 @@ export function assertCanDispute(job: DisputableJob, actorId: string) {
 
 export function assertSettlementAllowed(
   job: SettlementJob,
-  actorId: string,
+  actorId: string | null,
   cause: string,
   outcome: "pay_doer" | "refund_client",
 ) {
@@ -52,6 +62,17 @@ export function assertSettlementAllowed(
       throw new ApiError(403, "client_only", "Only the client can accept work.");
     if (job.status !== "submitted")
       throw new ApiError(409, "job_not_accepting", "Only a submitted job can be accepted.");
+  } else if (cause === "default_approval") {
+    if (job.status !== "submitted")
+      throw new ApiError(409, "job_not_accepting", "Only a submitted job can be approved by default.");
+  } else if (cause === "client_cancel") {
+    if (job.client_id !== actorId)
+      throw new ApiError(403, "client_only", "Only the client can cancel this job.");
+    if (job.status !== "ready" && !isOverdueWithoutSubmission(job))
+      throw new ApiError(409, "job_not_cancellable", "Only an unclaimed job, or a claimed job 72 hours past its deadline with no submission, can be cancelled for a refund.");
+  } else if (cause === "expiry") {
+    if (job.status !== "ready")
+      throw new ApiError(409, "job_not_expirable", "Only an unclaimed job can expire.");
   } else if (job.status !== "disputed") {
     throw new ApiError(409, "job_not_disputed", "Only a disputed job can be resolved.");
   }

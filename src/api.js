@@ -53,3 +53,94 @@ export const team={
  dispute:(token,id)=>api(`/v1/team/disputes/${id}`,{token}).then(r=>r.data),
  resolve:(token,id,outcome,note)=>api(`/v1/team/disputes/${id}/resolve`,{method:'POST',token,body:{outcome,note}}).then(r=>r.data),
 };
+
+const q=params=>{const s=new URLSearchParams(Object.entries(params).filter(([,v])=>v!==undefined&&v!==''));return s.toString()?`?${s}`:''};
+const post=(path,token,body={})=>api(path,{method:'POST',token,body}).then(r=>r?.data);
+const get=(path,token)=>api(path,{token}).then(r=>r.data);
+
+jobs.cancel=(token,id)=>post(`/v1/jobs/${id}/cancel`,token);
+
+export const account={
+ me:token=>get('/v1/me',token),
+ setHandle:(token,handle)=>api('/v1/me/handle',{method:'PUT',token,body:{handle}}).then(r=>r.data),
+ apiKeys:token=>get('/v1/me/api-keys',token),
+ createApiKey:(token,label)=>post('/v1/me/api-keys',token,{label}),
+ revokeApiKey:(token,id)=>api(`/v1/me/api-keys/${id}`,{method:'DELETE',token}),
+ payoutOptions:token=>get('/v1/payouts/options',token),
+ setElection:(token,body)=>api('/v1/payouts/election',{method:'PUT',token,body}).then(r=>r.data),
+ payouts:token=>get('/v1/payouts',token),
+ history:token=>get('/v1/history',token),
+ shares:token=>get('/v1/history/shares',token),
+ createShare:(token,body)=>post('/v1/history/shares',token,body),
+ revokeShare:(token,id)=>api(`/v1/history/shares/${id}`,{method:'DELETE',token}),
+ referrals:token=>get('/v1/referrals',token),
+ redeem:(token,code)=>post('/v1/referrals/redeem',token,{code}),
+ claimBonus:(token,id)=>post(`/v1/referrals/bonuses/${id}/claim`,token),
+ tipQuote:(token,subjectKind,subjectId)=>get(`/v1/tips/quote${q({subjectKind,subjectId})}`,token),
+ tip:(token,body)=>post('/v1/tips',token,body),
+};
+
+export const publicApi={
+ history:slug=>get(`/v1/public/history/${slug}`),
+ handle:handle=>get(`/v1/public/handles/${encodeURIComponent(handle.replace(/^@/,''))}`),
+};
+
+export const tasks={
+ list:type=>get(`/v1/tasks${q({type})}`),
+ assignments:token=>get('/v1/tasks/assignments',token),
+ claim:(token,batchId)=>post(`/v1/tasks/${batchId}/claim`,token),
+ submit:(token,id,body)=>post(`/v1/tasks/assignments/${id}/submit`,token,body),
+ release:(token,id)=>post(`/v1/tasks/assignments/${id}/release`,token),
+ dispute:(token,id,reason)=>post(`/v1/tasks/assignments/${id}/dispute`,token,{reason}),
+};
+
+export const batches={
+ create:(token,body)=>post('/v1/batches',token,body),
+ mine:token=>get('/v1/batches/mine',token),
+ get:(token,id)=>get(`/v1/batches/${id}`,token),
+ fund:(token,id,transactionHash)=>post(`/v1/batches/${id}/fund`,token,{transactionHash}),
+ close:(token,id)=>post(`/v1/batches/${id}/close`,token),
+ submissions:(token,id)=>get(`/v1/batches/${id}/submissions`,token),
+ approve:(token,id,assignmentId)=>post(`/v1/batches/${id}/assignments/${assignmentId}/approve`,token),
+ approveAll:(token,id)=>post(`/v1/batches/${id}/approve-all`,token),
+ reject:(token,id,assignmentId,reason)=>post(`/v1/batches/${id}/assignments/${assignmentId}/reject`,token,{reason}),
+};
+
+export const gigs={
+ open:()=>get('/v1/gigs/open'),
+ mine:token=>get('/v1/gigs/mine',token),
+ get:(token,id)=>get(`/v1/gigs/${id}`,token),
+ create:(token,body)=>post('/v1/gigs',token,body),
+ invite:(token,id,worker)=>post(`/v1/gigs/${id}/invite`,token,{worker}),
+ accept:(token,id)=>post(`/v1/gigs/${id}/accept`,token),
+ cancel:(token,id)=>post(`/v1/gigs/${id}/cancel`,token),
+ milestone:(token,id,milestoneId,action,body)=>post(`/v1/gigs/${id}/milestones/${milestoneId}/${action}`,token,body),
+};
+
+export const contracts={
+ mine:token=>get('/v1/contracts/mine',token),
+ get:(token,id)=>get(`/v1/contracts/${id}`,token),
+ create:(token,body)=>post('/v1/contracts',token,body),
+ accept:(token,id)=>post(`/v1/contracts/${id}/accept`,token),
+ decline:(token,id)=>post(`/v1/contracts/${id}/decline`,token),
+ reserve:(token,id,transactionHash)=>post(`/v1/contracts/${id}/periods`,token,{transactionHash}),
+ proposeRate:(token,id,rate)=>post(`/v1/contracts/${id}/rate`,token,{rate}),
+ respondRate:(token,id,accept)=>post(`/v1/contracts/${id}/rate/respond`,token,{accept}),
+ end:(token,id)=>post(`/v1/contracts/${id}/end`,token),
+};
+
+export const reviews={
+ me:token=>get('/v1/reviews/me',token),
+ get:(token,id)=>get(`/v1/reviews/${id}`,token),
+ resolve:(token,id,body)=>post(`/v1/reviews/${id}/resolve`,token,body),
+};
+
+Object.assign(team,{
+ reviews:token=>get('/v1/team/reviews',token),
+ review:(token,id)=>get(`/v1/team/reviews/${id}`,token),
+ resolveReview:(token,id,body)=>post(`/v1/team/reviews/${id}/resolve`,token,body),
+ reviewers:token=>get('/v1/team/reviewers',token),
+ addReviewer:(token,user)=>post('/v1/team/reviewers',token,{user}),
+ deactivateReviewer:(token,userId)=>post(`/v1/team/reviewers/${userId}/deactivate`,token),
+ bonusVault:token=>get('/v1/team/bonus-vault',token),
+});

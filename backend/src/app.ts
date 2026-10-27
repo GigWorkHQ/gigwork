@@ -34,6 +34,7 @@ app.get("/v1/config", (_request, response) =>
       chainId: chain.id,
       chainName: chain.name,
       explorerUrl: chain.blockExplorers.default.url,
+      rpcUrl: config.PUBLIC_RPC_URL ?? (chain.id === 4663 ? "https://rpc.mainnet.chain.robinhood.com" : "https://rpc.testnet.chain.robinhood.com"),
       usdg: { address: config.USDG_TOKEN_ADDRESS.toLowerCase(), decimals: config.USDG_DECIMALS },
       confirmations: config.RH_CONFIRMATIONS,
       rules: {
@@ -52,7 +53,7 @@ app.get("/v1/config", (_request, response) =>
 const authRouter = Router();
 authRouter.post("/nonce", asyncRoute(async (request, response) => {
   const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/).parse(request.body?.address);
-  response.json({ data: await issueNonce(address) });
+  response.json({ data: await issueNonce(address, request.header("origin")) });
 }));
 authRouter.post("/verify", asyncRoute(async (request, response) => {
   const input = z.object({ address: z.string().regex(/^0x[0-9a-fA-F]{40}$/), nonce: z.string().min(1), signature: z.string().regex(/^0x[0-9a-fA-F]+$/) }).parse(request.body);

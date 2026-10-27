@@ -1,19 +1,27 @@
-// Minimal EIP-1193 helpers. The browser wallet signs and sends; no keys or RPC secrets live here.
+// Minimal EIP-1193 helpers over the wallet the user picked in RainbowKit. The wallet signs and sends;
+// no keys or RPC secrets live here.
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function provider(){if(typeof window==='undefined'||!window.ethereum)throw new Error('No browser wallet found. Install a wallet such as MetaMask or Rabby, then try again.');return window.ethereum}
+let activeProvider=null;
+export function setProvider(next){activeProvider=next||null}
+function provider(){if(!activeProvider)throw new Error('Connect your wallet first with the wallet button at the top of the page.');return activeProvider}
 function walletError(e){if(e?.code===4001)return new Error('You cancelled the request in your wallet.');if(e?.code===-32002)return new Error('Your wallet already has a pending request. Open it to continue.');return e instanceof Error?e:new Error(e?.message||'The wallet request failed.')}
 async function request(method,params){try{return await provider().request(params?{method,params}:{method})}catch(e){throw walletError(e)}}
 
-export const hasWallet=()=>typeof window!=='undefined'&&Boolean(window.ethereum);
+export const hasWallet=()=>Boolean(activeProvider);
 export const shortAddress=a=>a?`${a.slice(0,6)}…${a.slice(-4)}`:'';
 
-export async function connectWallet(){const [account]=await request('eth_requestAccounts');if(!account)throw new Error('No wallet account was shared.');return account.toLowerCase()}
 
-export async function ensureChain({chainId,chainName}){
+export async function ensureChain({chainId,chainName,rpcUrl,explorerUrl}){
  const current=parseInt(await request('eth_chainId'),16);
  if(current===chainId)return;
- try{await provider().request({method:'wallet_switchEthereumChain',params:[{chainId:`0x${chainId.toString(16)}`}]})}
- catch(e){if(e?.code===4902)throw new Error(`Add ${chainName} (chain ID ${chainId}) to your wallet, then try again.`);throw walletError(e)}
+ const hexId=`0x${chainId.toString(16)}`;
+ try{await provider().request({method:'wallet_switchEthereumChain',params:[{chainId:hexId}]})}
+ catch(e){
+  const missing=e?.code===4902||e?.data?.originalError?.code===4902;
+  if(!missing)throw walletError(e);
+  if(!rpcUrl)throw new Error(`Add ${chainName} (chain ID ${chainId}) to your wallet, then try again.`);
+  await request('wallet_addEthereumChain',[{chainId:hexId,chainName,nativeCurrency:{name:'Ether',symbol:'ETH',decimals:18},rpcUrls:[rpcUrl],...(explorerUrl?{blockExplorerUrls:[explorerUrl]}:{})}]);
+ }
 }
 
 const utf8Hex=text=>'0x'+Array.from(new TextEncoder().encode(text),b=>b.toString(16).padStart(2,'0')).join('');
@@ -27,7 +35,7 @@ export function transferData(to,amountRaw){
 }
 
 export async function sendUsdg({from,token,to,amountRaw}){
- const [active]=await request('eth_requestAccounts');
+ const [active]=await request('eth_accounts');
  if(active?.toLowerCase()!==from.toLowerCase())throw new Error(`Switch your wallet to ${shortAddress(from)}, the wallet you signed in with.`);
  return request('eth_sendTransaction',[{from,to:token,data:transferData(to,amountRaw),value:'0x0'}]);
 }
@@ -38,4 +46,3 @@ export async function waitForReceipt(hash,{timeoutMs=180000}={}){
  throw new Error('The transfer is still pending. Confirm funding again once it has been mined.');
 }
 
-export function onWalletChange(handler){if(!hasWallet()||!window.ethereum.on)return ()=>{};window.ethereum.on('accountsChanged',handler);return ()=>window.ethereum.removeListener?.('accountsChanged',handler)}

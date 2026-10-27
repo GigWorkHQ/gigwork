@@ -4,7 +4,9 @@ import {Button,Pill} from './main.jsx';
 import './live.css';
 import {Panel,Empty,Modal} from './Dashboard.jsx';
 import {auth,jobs,team,account,readSession,saveSession,errorMessage,SESSION_EXPIRED} from './api.js';
-import {connectWallet,signMessage,shortAddress,onWalletChange,hasWallet} from './wallet.js';
+import {signMessage,shortAddress,setProvider} from './wallet.js';
+import {useAccount,useDisconnect} from 'wagmi';
+import {useConnectModal} from '@rainbow-me/rainbowkit';
 import {availableActions,roleIn,statusLabel,statusColor,validateJobDraft,jobPayload,lines} from './live.js';
 import {useConfig,date,SignInPrompt,ErrorNotice,TextAction,SubmitWork,Timeline,FundTransfer,TipPanel,ReviewStatus} from './LiveShared.jsx';
 export {useConfig,Timeline} from './LiveShared.jsx';
@@ -12,20 +14,33 @@ export {useConfig,Timeline} from './LiveShared.jsx';
 export const JobStatus=({value})=><Pill color={statusColor(value)}>{['ready','completed'].includes(value)&&<Check size={11}/>}{statusLabel(value)}</Pill>;
 
 
-// Wallet sign-in: request a nonce, sign the exact server message, then verify.
+// Wallet sign-in: the user picks a wallet in RainbowKit, then signs the exact server SIWE message.
 export function useLiveSession(notifyFn){
  const notifyRef=useRef(notifyFn);notifyRef.current=notifyFn;const notify=useCallback(m=>notifyRef.current(m),[]);
  const[session,setSession]=useState(readSession),[busy,setBusy]=useState(false),[profile,setProfile]=useState(null);const isTeam=Boolean(profile?.isTeam),isReviewer=Boolean(profile?.isReviewer);
- const signOut=useCallback(async(quiet=false)=>{const current=readSession();saveSession(null);setSession(null);setProfile(null);if(current)await auth.logout(current.token).catch(()=>{});if(!quiet)notify('Signed out.')},[notify]);
+ const{address,connector,status}=useAccount();const{openConnectModal,connectModalOpen}=useConnectModal();const{disconnect}=useDisconnect();
+ const pendingSignIn=useRef(false);
+ const signOut=useCallback(async(quiet=false)=>{const current=readSession();saveSession(null);setSession(null);setProfile(null);disconnect();if(current)await auth.logout(current.token).catch(()=>{});if(!quiet)notify('Signed out.')},[notify,disconnect]);
  useEffect(()=>{const expired=()=>{setSession(null);setProfile(null);notify('Your session ended. Sign in again to continue.')};window.addEventListener(SESSION_EXPIRED,expired);return()=>window.removeEventListener(SESSION_EXPIRED,expired)},[notify]);
- useEffect(()=>onWalletChange(accounts=>{if(session&&accounts[0]?.toLowerCase()!==session.walletAddress){signOut(true);notify('Wallet account changed. Sign in with the new account to continue.')}}),[session,signOut,notify]);
+ // Hand the chosen wallet's EIP-1193 provider to wallet.js for signing, chain switching and transfers.
+ useEffect(()=>{let live=true;if(connector&&status==='connected')connector.getProvider().then(p=>live&&setProvider(p)).catch(()=>{});else if(status==='disconnected')setProvider(null);return()=>{live=false}},[connector,status]);
+ useEffect(()=>{if(session&&address&&address.toLowerCase()!==session.walletAddress){signOut(true);notify('Wallet account changed. Sign in with the new account to continue.')}},[address,session,signOut,notify]);
  const refreshProfile=useCallback(async()=>{const current=readSession();if(!current){setProfile(null);return}try{setProfile(await account.me(current.token))}catch{setProfile(null)}},[]);
  useEffect(()=>{refreshProfile()},[session,refreshProfile]);
- async function signIn(){if(busy)return;setBusy(true);try{const address=await connectWallet();const challenge=await auth.nonce(address);const signature=await signMessage(address,challenge.message);const s=await auth.verify(address,challenge.nonce,signature);saveSession(s);setSession(s);notify(`Signed in as ${shortAddress(s.walletAddress)}.`)}catch(e){notify(errorMessage(e))}finally{setBusy(false)}}
- return {session,busy,isTeam,isReviewer,profile,refreshProfile,signIn,signOut};
+ const authenticate=useCallback(async(wallet,activeConnector)=>{setBusy(true);try{setProvider(await activeConnector.getProvider());const addr=wallet.toLowerCase();const challenge=await auth.nonce(addr);const signature=await signMessage(addr,challenge.message);const s=await auth.verify(addr,challenge.nonce,signature);saveSession(s);setSession(s);notify(`Signed in as ${shortAddress(s.walletAddress)}.`)}catch(e){notify(errorMessage(e))}finally{setBusy(false)}},[notify]);
+ // After the wallet picker connects, continue straight into signing.
+ useEffect(()=>{if(pendingSignIn.current&&address&&connector&&status==='connected'){pendingSignIn.current=false;authenticate(address,connector)}},[address,connector,status,authenticate]);
+ // Closing the picker without connecting cancels the pending sign-in.
+ const modalWasOpen=useRef(false);
+ useEffect(()=>{if(connectModalOpen){modalWasOpen.current=true;return}if(modalWasOpen.current){modalWasOpen.current=false;if(status!=='connected'&&status!=='connecting')pendingSignIn.current=false}},[connectModalOpen,status]);
+ // Signing in always shows the picker, even if a wallet reconnected silently, so users choose which one.
+ const pendingPicker=useRef(false);
+ useEffect(()=>{if(pendingPicker.current&&status==='disconnected'&&openConnectModal){pendingPicker.current=false;openConnectModal()}},[status,openConnectModal]);
+ function signIn(){if(busy)return;pendingSignIn.current=true;if(status==='connected'){pendingPicker.current=true;disconnect();return}openConnectModal?.()}
+ return {session,busy,isTeam,isReviewer,profile,refreshProfile,signIn,signOut,walletConnected:status==='connected',reconnect:()=>openConnectModal?.()};
 }
 
-export function WalletButton({live}){const{session,busy,signIn,signOut}=live;return session?<div className="wallet-chip"><span className="wallet-dot"/><b title={session.walletAddress}>{live.profile?.handle||shortAddress(session.walletAddress)}</b><button className="icon-btn" aria-label="Sign out" title="Sign out" onClick={()=>signOut()}><LogOut size={15}/></button></div>:<Button className="small wallet-signin" disabled={busy} onClick={signIn} title={hasWallet()?'Sign in with your wallet':'Install a browser wallet to sign in'}><LogIn size={15}/>{busy?'Check your wallet…':'Sign in'}</Button>}
+export function WalletButton({live}){const{session,busy,signIn,signOut}=live;return session?<div className="wallet-chip"><span className="wallet-dot"/><b title={session.walletAddress}>{live.profile?.handle||shortAddress(session.walletAddress)}</b>{!live.walletConnected&&<button className="text-link wallet-reconnect" onClick={live.reconnect} title="Your session is active but no wallet is connected for payments.">Connect wallet</button>}<button className="icon-btn" aria-label="Sign out" title="Sign out" onClick={()=>signOut()}><LogOut size={15}/></button></div>:<Button className="small wallet-signin" disabled={busy} onClick={signIn} title='Choose a wallet and sign in'><LogIn size={15}/>{busy?'Check your wallet…':'Sign in'}</Button>}
 
 
 function JobTable({items,wallet,onOpen}){return <div className="work-table"><div className="work-row work-table-head"><span>Job</span><span>Pay</span><span>Status</span><span>Next step</span></div>{items.map(j=>{const role=roleIn(j,wallet);return <div className="work-row" key={j.id}><div><b>{j.title}</b><span>{role==='client'?'You hired':role==='doer'?'You’re doing this':`Client ${shortAddress(j.clientWallet)}`}{j.deadlineAt?` · Due ${date(j.deadlineAt)}`:''}</span></div><strong>{j.amount}<small>USDG</small></strong><JobStatus value={j.status}/><button className="text-link" onClick={()=>onOpen(j)}>{role==='client'&&j.status==='awaiting_funding'?'Fund escrow':j.status==='ready'&&role!=='client'?'View & claim':'View details'}<ArrowUpRight size={15}/></button></div>})}</div>}

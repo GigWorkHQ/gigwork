@@ -3,12 +3,15 @@ import type { NextFunction, Request, Response } from "express";
 const ALLOWED_METHODS = "GET,POST,OPTIONS";
 const ALLOWED_HEADERS = "Authorization,Content-Type";
 
+// GigWork's own frontends are always allowed; CORS_ORIGINS adds more (e.g. previews, local dev).
+export const FIRST_PARTY_ORIGINS = ["https://www.gigworkhq.com", "https://gigworkhq.com", "https://gigwork-khaki.vercel.app"];
+
 export function parseAllowedOrigins(list: string, fallbackUri: string) {
   const entries = list
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
-  return new Set((entries.length ? entries : [fallbackUri]).map((origin) => new URL(origin).origin));
+  return new Set([...(entries.length ? entries : [fallbackUri]), ...FIRST_PARTY_ORIGINS].map((origin) => new URL(origin).origin));
 }
 
 // Sessions use bearer tokens, not cookies, so credentials are never allowed cross-origin.

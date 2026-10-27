@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { Request, Response } from "express";
-import { corsMiddleware, parseAllowedOrigins } from "../src/cors.js";
+import { FIRST_PARTY_ORIGINS, corsMiddleware, parseAllowedOrigins } from "../src/cors.js";
 
 function requestDouble(method: string, origin?: string) {
   return { method, header: (name: string) => (name.toLowerCase() === "origin" ? origin : undefined) } as unknown as Request;
@@ -21,8 +21,14 @@ describe("CORS", () => {
   const allowed = parseAllowedOrigins("https://gigwork.app, http://127.0.0.1:5173/", "http://localhost:4174");
 
   test("normalizes the configured origins and falls back to the sign-in URI origin", () => {
-    expect([...allowed]).toEqual(["https://gigwork.app", "http://127.0.0.1:5173"]);
-    expect([...parseAllowedOrigins("", "https://gigwork.app/app")]).toEqual(["https://gigwork.app"]);
+    expect([...allowed]).toEqual(["https://gigwork.app", "http://127.0.0.1:5173", ...FIRST_PARTY_ORIGINS]);
+    expect([...parseAllowedOrigins("", "https://gigwork.app/app")]).toEqual(["https://gigwork.app", ...FIRST_PARTY_ORIGINS]);
+  });
+
+  test("always allows the GigWork production sites", () => {
+    expect(allowed.has("https://www.gigworkhq.com")).toBe(true);
+    expect(allowed.has("https://gigworkhq.com")).toBe(true);
+    expect(allowed.has("https://evil.example")).toBe(false);
   });
 
   test("echoes an allowed origin and passes the request on", () => {

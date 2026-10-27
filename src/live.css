@@ -109,3 +109,5 @@
  .share-header{padding:16px}
 }
 .sidebar nav[aria-label="Preview navigation"]{margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}
+.wallet-reconnect{font-size:12px;white-space:nowrap}
+[data-rk]{font-family:inherit}

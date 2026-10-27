@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 import { createSiweMessage } from "viem/siwe";
 import { verifyMessage } from "viem";
 import { db } from "./db/index.js";
-import { config, teamWallets } from "./config.js";
+import { allowedOrigins, config, teamWallets } from "./config.js";
 import { ApiError } from "./http.js";
 
 const SESSION_DAYS = 7;
@@ -16,12 +16,18 @@ export function extractBearerToken(authorization: string | undefined) {
   return authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
 }
 
-export function signInMessage(address: string, nonce: string, issuedAt: Date, expiresAt: Date) {
+// The message names the frontend the user is on when it is an allowed origin, else the configured site.
+export function signInSite(origin: string | undefined, allowed: ReadonlySet<string> = allowedOrigins) {
+  if (origin && allowed.has(origin)) return { domain: new URL(origin).host, uri: origin };
+  return { domain: config.AUTH_DOMAIN, uri: config.AUTH_URI };
+}
+
+export function signInMessage(address: string, nonce: string, issuedAt: Date, expiresAt: Date, site = signInSite(undefined)) {
   return createSiweMessage({
-    domain: config.AUTH_DOMAIN,
+    domain: site.domain,
     address: address as `0x${string}`,
     statement: "Sign in to GigWork.",
-    uri: config.AUTH_URI,
+    uri: site.uri,
     version: "1",
     chainId: config.RH_CHAIN_ID,
     nonce,
@@ -30,19 +36,20 @@ export function signInMessage(address: string, nonce: string, issuedAt: Date, ex
   });
 }
 
-export async function issueNonce(address: string) {
+export async function issueNonce(address: string, origin?: string) {
+  const site = signInSite(origin);
   const walletAddress = canonical(address);
   const nonce = randomBytes(24).toString("hex");
   const issuedAt = new Date();
   const expiresAt = new Date(issuedAt.getTime() + 10 * 60_000);
   await db.query(
-    "INSERT INTO auth_nonces (nonce, wallet_address, issued_at, expires_at) VALUES ($1,$2,$3,$4)",
-    [nonce, walletAddress, issuedAt, expiresAt],
+    "INSERT INTO auth_nonces (nonce, wallet_address, issued_at, expires_at, domain, uri) VALUES ($1,$2,$3,$4,$5,$6)",
+    [nonce, walletAddress, issuedAt, expiresAt, site.domain, site.uri],
   );
   return {
     walletAddress,
     nonce,
-    message: signInMessage(walletAddress, nonce, issuedAt, expiresAt),
+    message: signInMessage(walletAddress, nonce, issuedAt, expiresAt, site),
     expiresAt,
   };
 }
@@ -56,8 +63,8 @@ export async function createSession(input: {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const nonce = await client.query<{ issued_at: Date; expires_at: Date }>(
-      "SELECT issued_at, expires_at FROM auth_nonces WHERE wallet_address=$1 AND nonce=$2 AND consumed_at IS NULL FOR UPDATE",
+    const nonce = await client.query<{ issued_at: Date; expires_at: Date; domain: string | null; uri: string | null }>(
+      "SELECT issued_at, expires_at, domain, uri FROM auth_nonces WHERE wallet_address=$1 AND nonce=$2 AND consumed_at IS NULL FOR UPDATE",
       [walletAddress, input.nonce],
     );
     const challenge = nonce.rows[0];
@@ -65,7 +72,8 @@ export async function createSession(input: {
       throw new ApiError(401, "invalid_nonce", "This sign-in request expired. Request a new nonce.");
     const valid = await verifyMessage({
       address: walletAddress as `0x${string}`,
-      message: signInMessage(walletAddress, input.nonce, challenge.issued_at, challenge.expires_at),
+      message: signInMessage(walletAddress, input.nonce, challenge.issued_at, challenge.expires_at,
+        challenge.domain && challenge.uri ? { domain: challenge.domain, uri: challenge.uri } : signInSite(undefined)),
       signature: input.signature,
     });
     if (!valid) throw new ApiError(401, "invalid_signature", "The signature does not match this wallet.");

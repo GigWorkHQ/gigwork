@@ -14,6 +14,8 @@ const env = z
     RH_CONFIRMATIONS: z.coerce.number().int().min(1).max(100).default(2),
     AUTH_DOMAIN: z.string().min(1).default("localhost"),
     AUTH_URI: z.string().url().default("http://localhost:4174"),
+    // Public RPC handed to wallets for adding the network. Never the private RH_RPC_URL.
+    PUBLIC_RPC_URL: z.string().url().optional(),
     CORS_ORIGINS: z.string().default(""),
     AUTH_TOKEN_PEPPER: z.string().min(32),
     DATA_ENCRYPTION_KEY: z.string().min(32),

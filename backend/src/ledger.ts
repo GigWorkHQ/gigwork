@@ -7,7 +7,7 @@ import { db } from "./db/index.js";
 import { gasAccount, publicClient, verifyJobFunding } from "./escrow.js";
 import { ApiError } from "./http.js";
 import type { Queryable } from "./common.js";
-import { GAS_WALLET_LOCK, RevertedError, gasNonceFloor, sendPersisted, usdgPayoutTransaction } from "./settlement.js";
+import { ETH_TRANSFER_GAS, GAS_WALLET_LOCK, RevertedError, StaleTxError, USDG_TRANSFER_GAS, nextGasNonce, payableGasPrice, sendPersisted, usdgPayoutTransaction } from "./settlement.js";
 
 // Multi-payout escrow accounts. Each batch, gig and contract gets its own key-encrypted wallet that
 // receives exact client deposits and pays workers through persisted, replay-safe ERC-20 transfers.
@@ -17,7 +17,6 @@ export type TransferKind =
   | "assignment_pay" | "batch_refund" | "milestone_pay" | "milestone_refund"
   | "pay_period" | "pay_period_refund" | "referral_bonus";
 
-const PAYOUT_GAS = 100_000n;
 const escrowContext = (id: string) => `escrow:${id}`;
 
 export async function createEscrowAccount(client: Queryable, kind: EscrowKind) {
@@ -118,14 +117,19 @@ async function finishGasTopups(escrowId: string) {
     [escrowId],
   );
   for (const topup of pending.rows) {
-    await sendPersisted(topup.signed_tx, topup.tx_hash);
+    try { await sendPersisted(topup.signed_tx, topup.tx_hash); }
+    catch (error) {
+      // It never reached the chain; drop it so ensureGas signs a new top-up if the escrow still needs one.
+      if (error instanceof StaleTxError) await db.query("DELETE FROM gas_topups WHERE id=$1 AND status='pending'", [topup.id]);
+      throw error;
+    }
     await db.query("UPDATE gas_topups SET status='complete' WHERE id=$1", [topup.id]);
   }
 }
 
 async function ensureGas(escrowId: string, address: Address, gasPrice: bigint, remaining: number) {
   await finishGasTopups(escrowId);
-  const perTransfer = gasPrice * PAYOUT_GAS * 2n;
+  const perTransfer = gasPrice * USDG_TRANSFER_GAS * 2n;
   const balance = await publicClient.getBalance({ address });
   if (balance >= perTransfer) return;
   const amount = perTransfer * BigInt(Math.min(Math.max(remaining, 1), 10));
@@ -133,9 +137,8 @@ async function ensureGas(escrowId: string, address: Address, gasPrice: bigint, r
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock($1)", [GAS_WALLET_LOCK]);
-    const pendingCount = await publicClient.getTransactionCount({ address: gasAccount.address, blockTag: "pending" });
-    const nonce = Math.max(pendingCount, await gasNonceFloor(client));
-    const raw = await gasAccount.signTransaction({ to: address, value: amount, gas: 21_000n, gasPrice, nonce, chainId: config.RH_CHAIN_ID, type: "legacy" });
+    const nonce = await nextGasNonce(client);
+    const raw = await gasAccount.signTransaction({ to: address, value: amount, gas: ETH_TRANSFER_GAS, gasPrice, nonce, chainId: config.RH_CHAIN_ID, type: "legacy" });
     await client.query("INSERT INTO gas_topups (escrow_id,nonce,amount_wei,signed_tx,tx_hash) VALUES ($1,$2,$3,$4,$5)", [
       escrowId, nonce, amount.toString(), raw, keccak256(raw),
     ]);
@@ -194,13 +197,15 @@ export async function processEscrow(escrowId: string) {
         try {
           let signed = transfer.signed_tx && transfer.tx_hash ? { raw: transfer.signed_tx, hash: transfer.tx_hash } : null;
           if (!signed) {
-            const gasPrice = await publicClient.getGasPrice();
+            const gasPrice = await payableGasPrice();
             await ensureGas(escrowId, leased.rows[0].address, gasPrice, pending.rowCount - index);
             signed = await signTransfer(escrowId, transfer, account, gasPrice);
           }
           await sendPersisted(signed.raw, signed.hash);
           await db.query("UPDATE escrow_transfers SET status='complete',error=NULL,completed_at=now(),updated_at=now() WHERE id=$1", [transfer.id]);
         } catch (error) {
+          if (error instanceof StaleTxError)
+            await db.query("UPDATE escrow_transfers SET nonce=NULL,signed_tx=NULL,tx_hash=NULL WHERE id=$1 AND status='pending'", [transfer.id]);
           const failed = error instanceof RevertedError;
           await db.query("UPDATE escrow_transfers SET status=$2,error=$3,updated_at=now() WHERE id=$1", [
             transfer.id, failed ? "failed" : "pending", String(error).slice(0, 2_000),

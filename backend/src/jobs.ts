@@ -13,6 +13,7 @@ import { casesFor, openReviewCase, registerReviewSubject } from "./reviews.js";
 import { makeEscrowWallet, verifyJobFunding, type FundingTerms, type JobAsset } from "./escrow.js";
 import { ApiError, asyncRoute } from "./http.js";
 import { processSettlement } from "./settlement.js";
+import { usdgBalance } from "./ledger.js";
 
 export const jobsRouter = Router();
 const uuid = z.string().uuid();
@@ -195,7 +196,12 @@ jobsRouter.get(
     if (!allowed && job.status !== "ready")
       throw new ApiError(404, "job_not_found", "This job does not exist.");
     const review = (await casesFor("job", [id])).get(id) ?? null;
-    response.json({ data: { ...presentJob(job), review } });
+    const settlement = (await db.query<{ status: string; attempts: number; error: string | null }>(
+      "SELECT status,attempts,error FROM job_settlements WHERE job_id=$1", [id])).rows[0];
+    const payout = settlement && settlement.status === "pending"
+      ? { attempts: settlement.attempts, retrying: Boolean(settlement.error) && settlement.attempts > 1 }
+      : null;
+    response.json({ data: { ...presentJob(job), review, payout } });
   }),
 );
 
@@ -579,12 +585,28 @@ teamJobsRouter.post("/disputes/:jobId/resolve", asyncRoute(async (request, respo
 const kickSettlement = (id: string) => void processSettlement(id).catch((error) => console.error(`Settlement ${id} failed to start:`, error));
 
 // Cancel: an unfunded job is simply cancelled; a funded, unclaimed job (or a claimed one long overdue with
-// nothing submitted) is refunded to the client from escrow.
+// nothing submitted) is refunded to the client from escrow. "Unfunded" is checked on-chain too: a transfer that
+// landed before the funding was recorded (or after an unfunded cancel) is refunded instead of left in escrow.
 jobsRouter.post(
   "/:id/cancel",
   requireAuth,
   asyncRoute(async (request, response) => {
     const id = uuid.parse(request.params.id);
+    const job = (await db.query<{ status: string; client_id: string; escrow_address: string; settled: boolean }>(
+      `SELECT j.status,j.client_id,ew.address AS escrow_address,EXISTS(SELECT 1 FROM job_settlements s WHERE s.job_id=j.id) AS settled
+       FROM jobs j JOIN job_escrow_wallets ew ON ew.job_id=j.id WHERE j.id=$1`, [id])).rows[0];
+    if (!job) throw new ApiError(404, "job_not_found", "This job does not exist.");
+    if (job.client_id !== request.auth!.userId) throw new ApiError(403, "client_only", "Only the client can cancel this job.");
+    if (["awaiting_funding", "cancelled"].includes(job.status) && !job.settled) {
+      const deposit = await usdgBalance(job.escrow_address);
+      if (deposit > 0n) {
+        const result = await recoverDeposit(id, request.auth!.userId, deposit);
+        response.status(202).json({ data: result });
+        kickSettlement(id);
+        return;
+      }
+      if (job.status === "cancelled") throw new ApiError(409, "nothing_to_refund", "This job's escrow holds no USDG to refund.");
+    }
     const unfunded = await db.query(
       `UPDATE jobs SET status='cancelled',updated_at=now() WHERE id=$1 AND client_id=$2 AND status='awaiting_funding' RETURNING id`,
       [id, request.auth!.userId],
@@ -599,6 +621,24 @@ jobsRouter.post(
     kickSettlement(id);
   }),
 );
+
+async function recoverDeposit(jobId: string, actorId: string, deposit: bigint) {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query(
+      `UPDATE jobs SET status='ready',funded_at=COALESCE(funded_at,now()),updated_at=now()
+       WHERE id=$1 AND status IN ('awaiting_funding','cancelled') RETURNING id`, [jobId]);
+    if (!locked.rowCount) throw new ApiError(409, "job_not_cancellable", "This job changed while cancelling. Refresh and try again.");
+    await appendEvent(client, jobId, actorId, "job.deposit_recovered", { amountRaw: deposit.toString() });
+    const result = await createSettlement(jobId, actorId, "client_cancel", "refund_client", client);
+    // Refund what the escrow actually holds, which may differ from the listed amount.
+    await client.query("UPDATE job_settlements SET amount_raw=$2 WHERE job_id=$1", [jobId, deposit.toString()]);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+}
 
 registerReviewSubject("job", {
   allowsSplit: false,

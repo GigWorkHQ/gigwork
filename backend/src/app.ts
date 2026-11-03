@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createSession, issueNonce, requireAuth, requireWalletSession, revokeSession } from "./auth.js";
 import { allowedOrigins, config } from "./config.js";
 import { corsMiddleware } from "./cors.js";
-import { chain } from "./escrow.js";
+import { chain, gasWalletAddress } from "./escrow.js";
 import { db } from "./db/index.js";
 import { jobsRouter, teamJobsRouter } from "./jobs.js";
 import { ApiError, asyncRoute, errorHandler } from "./http.js";
@@ -37,6 +37,8 @@ app.get("/v1/config", (_request, response) =>
       rpcUrl: config.PUBLIC_RPC_URL ?? (chain.id === 4663 ? "https://rpc.mainnet.chain.robinhood.com" : "https://rpc.testnet.chain.robinhood.com"),
       usdg: { address: config.USDG_TOKEN_ADDRESS.toLowerCase(), decimals: config.USDG_DECIMALS },
       confirmations: config.RH_CONFIRMATIONS,
+      // Public so anyone can check (and top up) the wallet that pays escrow gas.
+      gasWallet: gasWalletAddress,
       rules: {
         jobReviewHours: config.JOB_REVIEW_HOURS,
         taskReviewHoursMin: 24,

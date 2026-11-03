@@ -12,32 +12,63 @@ type Settlement = {
   token_address: Address; escrow_address: Address; encrypted_private_key: string;
 };
 
+// Robinhood Chain is an Arbitrum chain: gas used includes the L1 data fee, so a plain ETH transfer costs
+// more than 21,000 gas (about 21,500 today). Limits leave room for L1 fee spikes; unused gas is not charged.
+export const ETH_TRANSFER_GAS = 50_000n;
+export const USDG_TRANSFER_GAS = 150_000n;
+
 export function usdgPayoutTransaction(recipient: Address, tokenAddress: Address, amountRaw: string, gasPrice: bigint) {
   return {
     to: tokenAddress,
     value: 0n,
     data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, BigInt(amountRaw)] }),
-    gas: 100_000n,
+    gas: USDG_TRANSFER_GAS,
     gasPrice,
   };
 }
 
+// Twice the quoted price, so a small base-fee rise between signing and inclusion doesn't reject the transaction.
+export async function payableGasPrice() {
+  return (await publicClient.getGasPrice()) * 2n;
+}
+
 export function escrowGasReserve(gasPrice: bigint) {
-  return gasPrice * (100_000n + 21_000n + 30_000n) * 2n;
+  return gasPrice * (USDG_TRANSFER_GAS + ETH_TRANSFER_GAS) * 2n;
 }
 
 export function escrowSweepAmount(balance: bigint, gasPrice: bigint) {
-  return balance - gasPrice * 21_000n;
+  return balance - gasPrice * ETH_TRANSFER_GAS;
 }
 
 export class RevertedError extends Error {}
+// A signed transaction that can never be mined (rejected for its gas or fee, nonce taken, or dropped): the caller
+// clears it so the next attempt signs a fresh one.
+export class StaleTxError extends Error {}
+
+const STALE_REJECTION = /intrinsic gas too low|gas limit too low|base fee|fee too low|transaction underpriced|nonce too high/;
+export function isStaleRejection(message: string) {
+  const text = message.toLowerCase();
+  return STALE_REJECTION.test(text) && !text.includes("replacement");
+}
 
 // Shared with escrow transfers so the gas wallet never signs two transactions with one nonce.
 export const GAS_WALLET_LOCK = 73301822;
-export async function gasNonceFloor(client: { query: (text: string) => Promise<{ rows: any[] }> }) {
+// The lowest nonce at or above the chain's pending count that no signed, unconfirmed transaction holds. Taking the
+// lowest free one (not the highest used plus one) fills the gap a cleared stale transaction leaves behind.
+// Callers hold GAS_WALLET_LOCK.
+export async function nextGasNonce(client: { query: (text: string, values?: any[]) => Promise<{ rows: any[] }> }) {
+  const pending = await publicClient.getTransactionCount({ address: gasWalletAddress, blockTag: "pending" });
   const result = await client.query(
-    `SELECT (GREATEST((SELECT MAX(gas_nonce) FROM job_settlements),(SELECT MAX(nonce) FROM gas_topups))+1)::text AS next_nonce`);
-  return result.rows[0].next_nonce ? Number(result.rows[0].next_nonce) : 0;
+    `SELECT gas_nonce::text AS nonce FROM job_settlements WHERE gas_nonce>=$1
+     UNION SELECT nonce::text FROM gas_topups WHERE nonce>=$1`, [pending]);
+  return firstFreeNonce(pending, result.rows.map((row) => Number(row.nonce)));
+}
+
+export function firstFreeNonce(start: number, taken: number[]) {
+  const used = new Set(taken);
+  let nonce = start;
+  while (used.has(nonce)) nonce++;
+  return nonce;
 }
 
 const waitFor = async (hash: Hash) => {
@@ -50,9 +81,21 @@ export async function sendPersisted(raw: Hex, hash: Hash) {
   try { await publicClient.sendRawTransaction({ serializedTransaction: raw }); }
   catch (error) {
     const message = String(error).toLowerCase();
-    if (!message.includes("already known") && !message.includes("known transaction") && !message.includes("nonce too low")) throw error;
+    if (message.includes("nonce too low")) {
+      // Either this transaction was already mined, or another one took its nonce; only a receipt tells which.
+      const receipt = await publicClient.getTransactionReceipt({ hash }).catch(() => null);
+      if (!receipt) throw new StaleTxError(`Transaction ${hash} can't be mined: another transaction used its nonce.`);
+    } else if (isStaleRejection(message)) {
+      throw new StaleTxError(`Transaction ${hash} was rejected: ${String(error).slice(0, 300)}`);
+    } else if (!message.includes("already known") && !message.includes("known transaction")) throw error;
   }
-  return waitFor(hash);
+  try { return await waitFor(hash); }
+  catch (error) {
+    if (error instanceof RevertedError) throw error;
+    const known = await publicClient.getTransaction({ hash }).catch(() => null);
+    if (!known) throw new StaleTxError(`Transaction ${hash} was dropped before it was mined.`);
+    throw error;
+  }
 }
 
 async function load(jobId: string) {
@@ -76,12 +119,12 @@ async function signAndPersist(jobId: string, stage: "gas" | "payout" | "sweep", 
       await client.query("COMMIT");
       return { raw: current.rows[0][signedColumn] as Hex, hash: current.rows[0][hashColumn] as Hash };
     }
-    const pending = await publicClient.getTransactionCount({ address: account.address, blockTag: "pending" });
-    const floor = stage === "gas"
-      ? await gasNonceFloor(client)
-      : Number((await client.query<{ next_nonce: string }>(
-          `SELECT (GREATEST(COALESCE(payout_nonce,-1),COALESCE(sweep_nonce,-1))+1)::text AS next_nonce FROM job_settlements WHERE job_id=$1`, [jobId])).rows[0].next_nonce);
-    const nonce = Math.max(pending, floor);
+    const nonce = stage === "gas"
+      ? await nextGasNonce(client)
+      : Math.max(
+          await publicClient.getTransactionCount({ address: account.address, blockTag: "pending" }),
+          Number((await client.query<{ next_nonce: string }>(
+            `SELECT (GREATEST(COALESCE(payout_nonce,-1),COALESCE(sweep_nonce,-1))+1)::text AS next_nonce FROM job_settlements WHERE job_id=$1`, [jobId])).rows[0].next_nonce));
     const raw = await account.signTransaction({ ...tx, nonce, chainId: config.RH_CHAIN_ID, type: "legacy" });
     const hash = keccak256(raw);
     await client.query(`UPDATE job_settlements SET ${nonceColumn}=$2,${signedColumn}=$3,${hashColumn}=$4,updated_at=now() WHERE job_id=$1`,
@@ -98,24 +141,32 @@ async function ensureStageTx(settlement: Settlement, stage: "gas" | "payout" | "
   return signAndPersist(settlement.job_id, stage, tx, account);
 }
 
+async function sendStage(jobId: string, stage: "gas" | "payout" | "sweep", tx: { raw: Hex; hash: Hash }) {
+  try { return await sendPersisted(tx.raw, tx.hash); }
+  catch (error) {
+    if (error instanceof StaleTxError)
+      await db.query(`UPDATE job_settlements SET ${stage}_nonce=NULL,${stage}_signed_tx=NULL,${stage}_tx_hash=NULL,updated_at=now() WHERE job_id=$1 AND ${stage}_tx_hash=$2`, [jobId, tx.hash]);
+    throw error;
+  }
+}
+
 export async function processSettlement(jobId: string) {
   const lease = await db.query(
-    `UPDATE job_settlements SET lease_until=now()+interval '2 minutes',attempts=attempts+1,updated_at=now()
+    `UPDATE job_settlements SET lease_until=now()+interval '5 minutes',attempts=attempts+1,updated_at=now()
      WHERE job_id=$1 AND status='pending' AND (lease_until IS NULL OR lease_until<now()) RETURNING id`, [jobId]);
   if (!lease.rowCount) return;
   try {
     let settlement = await load(jobId);
     if (!settlement) throw new Error("Settlement record is missing.");
     const escrow = loadEscrowAccount(jobId, settlement.encrypted_private_key);
-    const gasPrice = await publicClient.getGasPrice();
-    const sweepGas = 21_000n;
+    const gasPrice = await payableGasPrice();
 
     {
       const reserve = escrowGasReserve(gasPrice);
       const gasTx = await ensureStageTx(settlement, "gas", {
-        to: settlement.escrow_address, value: reserve, gas: 21_000n, gasPrice,
+        to: settlement.escrow_address, value: reserve, gas: ETH_TRANSFER_GAS, gasPrice,
       }, gasAccount);
-      await sendPersisted(gasTx.raw, gasTx.hash);
+      await sendStage(jobId, "gas", gasTx);
       await db.query("UPDATE job_settlements SET phase='payout',updated_at=now() WHERE job_id=$1", [jobId]);
     }
 
@@ -127,21 +178,21 @@ export async function processSettlement(jobId: string) {
         usdgPayoutTransaction(settlement.recipient, settlement.token_address, settlement.amount_raw, gasPrice),
         escrow,
       );
-      await sendPersisted(payout.raw, payout.hash);
+      await sendStage(jobId, "payout", payout);
       await db.query("UPDATE job_settlements SET phase='sweep',updated_at=now() WHERE job_id=$1", [jobId]);
     }
 
     settlement = await load(jobId);
     if (settlement.sweep_signed_tx && settlement.sweep_tx_hash) {
-      await sendPersisted(settlement.sweep_signed_tx, settlement.sweep_tx_hash);
+      await sendStage(jobId, "sweep", { raw: settlement.sweep_signed_tx, hash: settlement.sweep_tx_hash });
     } else {
       const balance = await publicClient.getBalance({ address: settlement.escrow_address });
       const sweepValue = escrowSweepAmount(balance, gasPrice);
       if (sweepValue > 0n) {
         const sweep = await ensureStageTx(settlement, "sweep", {
-          to: gasWalletAddress, value: sweepValue, gas: sweepGas, gasPrice,
+          to: gasWalletAddress, value: sweepValue, gas: ETH_TRANSFER_GAS, gasPrice,
         }, escrow);
-        await sendPersisted(sweep.raw, sweep.hash);
+        await sendStage(jobId, "sweep", sweep);
       }
     }
 

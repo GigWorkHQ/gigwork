@@ -46,6 +46,8 @@ describe("CORS", () => {
     corsMiddleware(allowed)(requestDouble("OPTIONS", "https://gigwork.app"), response, next);
     expect(output.status).toBe(204);
     expect(output.headers["Access-Control-Allow-Headers"]).toBe("Authorization,Content-Type");
+    // The API uses PUT (handle, payout election) and DELETE (API keys, history shares) from the browser.
+    for (const method of ["GET", "POST", "PUT", "DELETE"]) expect(output.headers["Access-Control-Allow-Methods"].split(",")).toContain(method);
     expect(next).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 
-const ALLOWED_METHODS = "GET,POST,OPTIONS";
+const ALLOWED_METHODS = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 const ALLOWED_HEADERS = "Authorization,Content-Type";
 
 // GigWork's own frontends are always allowed; CORS_ORIGINS adds more (e.g. previews, local dev).

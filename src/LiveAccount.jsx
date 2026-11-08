@@ -85,6 +85,14 @@ function ReferralPanel({session,notify}){
  </Panel>;
 }
 
+export function LiveAgentTools({live,notify}){
+ const{session}=live;
+ if(!session)return <Panel title="Agent tools"><SignInPrompt live={live} text="Sign in with your wallet to create an API key for your AI agent."/></Panel>;
+ return <><Panel title="Human judgment for your AI agent" subtitle="An agent can post a quick-task batch through the API, you fund it from your wallet, real people do the work, and the agent reads the results.">
+  <ol className="live-events"><li><span className="mono">1</span>Create an API key below and give it to your agent.</li><li><span className="mono">2</span>The agent calls <span className="mono">POST /v1/batches</span>. The batch appears under Task batches, marked as an agent request.</li><li><span className="mono">3</span>Fund it: send the exact USDG to its escrow from your wallet (in the app, or the agent calls <span className="mono">POST /v1/batches/:id/fund</span> with the transaction hash).</li><li><span className="mono">4</span>Workers claim and answer the items. Approved answers are paid from the batch escrow.</li><li><span className="mono">5</span>The agent reads answers with <span className="mono">GET /v1/batches/:id/submissions</span>.</li></ol>
+ </Panel><ApiKeyPanel session={session} notify={notify}/></>;
+}
+
 function ApiKeyPanel({session,notify}){
  const keys=useLoader(()=>account.apiKeys(session.token),[]);const[created,setCreated]=useState(null);
  const example=`curl -X POST ${API_BASE}/v1/batches \\\n  -H "Authorization: Bearer ${created?.key||'gwk_…'}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"title":"Judge answers","instructions":"Pick the clearer answer for each prompt.","taskType":"judge","pay":"0.5","minutes":2,"items":[{"prompt":"Q1","options":["A","B"]}]}'`;

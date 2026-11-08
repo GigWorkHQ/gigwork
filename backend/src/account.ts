@@ -153,6 +153,45 @@ accountRouter.get("/payouts", asyncRoute(async (request, response) => {
   } });
 }));
 
+// Money the signed-in user sent: escrow fundings, payouts from their escrows to workers, and tips.
+const sentLabel: Record<string, string> = {
+  job_funding: "Job funded", batch: "Task batch funded", milestone: "Milestone funded", pay_period: "Pay period reserved",
+  job: "Paid for job", assignment_pay: "Paid for quick task", milestone_pay: "Paid for milestone", pay_period_pay: "Paid for pay period", tip: "Tip sent",
+};
+
+accountRouter.get("/payments/sent", asyncRoute(async (request, response) => {
+  const rows = await db.query<{ direction: string; kind: string; title: string | null; amount_raw: string; tx_hash: string | null; status: string; at: Date }>(
+    `WITH mine AS (
+       SELECT escrow_id,title FROM batches WHERE client_id=$1
+       UNION ALL SELECT escrow_id,title FROM gigs WHERE client_id=$1
+       UNION ALL SELECT escrow_id,title FROM contracts WHERE client_id=$1)
+     SELECT 'funding' AS direction,'job_funding' AS kind,j.title,j.amount_raw::text,j.funding_tx_hash AS tx_hash,'complete' AS status,COALESCE(j.funded_at,j.created_at) AS at
+       FROM jobs j WHERE j.client_id=$1 AND j.funding_tx_hash IS NOT NULL
+     UNION ALL
+     SELECT 'funding',d.purpose,m.title,d.amount_raw::text,d.tx_hash,'complete',d.created_at
+       FROM escrow_deposits d JOIN mine m ON m.escrow_id=d.escrow_id
+     UNION ALL
+     SELECT 'payout',CASE t.kind WHEN 'pay_period' THEN 'pay_period_pay' ELSE t.kind END,m.title,t.amount_raw::text,t.tx_hash,t.status,COALESCE(t.completed_at,t.created_at)
+       FROM escrow_transfers t JOIN mine m ON m.escrow_id=t.escrow_id WHERE t.kind IN ('assignment_pay','milestone_pay','pay_period')
+     UNION ALL
+     SELECT 'payout','job',j.title,s.amount_raw::text,s.payout_tx_hash,s.status,s.updated_at
+       FROM job_settlements s JOIN jobs j ON j.id=s.job_id WHERE j.client_id=$1 AND s.outcome='pay_doer'
+     UNION ALL
+     SELECT 'tip','tip',NULL,t.amount_raw::text,t.tx_hash,'complete',t.created_at FROM tips t WHERE t.from_id=$1
+     ORDER BY at DESC LIMIT 500`,
+    [request.auth!.userId],
+  );
+  const sum = (direction: string, status = "complete") =>
+    fromRaw(rows.rows.filter((r) => r.direction === direction && r.status === status).reduce((total, r) => total + BigInt(r.amount_raw), 0n));
+  response.json({ data: {
+    totals: { funded: sum("funding"), paidToWorkers: sum("payout"), pendingToWorkers: sum("payout", "pending"), tips: sum("tip") },
+    entries: rows.rows.map((r) => ({
+      direction: r.direction, kind: r.kind, label: sentLabel[r.kind] ?? r.kind, title: r.title, amount: fromRaw(r.amount_raw), status: r.status,
+      transactionHash: r.status === "complete" ? r.tx_hash : null, at: r.at,
+    })),
+  } });
+}));
+
 // ---------- Work history ----------
 // Entries come only from escrow payouts that completed on-chain, so every entry has a verifiable transaction.
 

@@ -69,6 +69,7 @@ export const account={
  payoutOptions:token=>get('/v1/payouts/options',token),
  setElection:(token,body)=>api('/v1/payouts/election',{method:'PUT',token,body}).then(r=>r.data),
  payouts:token=>get('/v1/payouts',token),
+ sent:token=>get('/v1/payments/sent',token),
  history:token=>get('/v1/history',token),
  shares:token=>get('/v1/history/shares',token),
  createShare:(token,body)=>post('/v1/history/shares',token,body),

@@ -34,6 +34,10 @@ const env = z
     // Referral work only counts when it pays at least this much and comes from this many distinct, unlinked clients.
     REFERRAL_MIN_ITEM_USDG: z.string().regex(/^\d+(\.\d+)?$/).default("1"),
     REFERRAL_MIN_CLIENTS: z.coerce.number().int().min(1).max(100).default(3),
+    // A client counts only if it is an established, independent customer: on GigWork this many days, and it has paid
+    // this many other workers who are not linked to the referee or referrer.
+    REFERRAL_CLIENT_MIN_AGE_DAYS: z.coerce.number().int().min(0).max(365).default(30),
+    REFERRAL_CLIENT_MIN_OTHER_WORKERS: z.coerce.number().int().min(0).max(100).default(2),
     MIN_AMOUNT_USDG: z.string().regex(/^\d+(\.\d+)?$/).refine((v) => Number(v) > 0, "MIN_AMOUNT_USDG must be above 0.").default("0.1"),
     DAILY_CREATE_LIMIT: z.coerce.number().int().min(1).max(10_000).default(100),
     // Requests per minute per IP: sign-in routes, and every write.

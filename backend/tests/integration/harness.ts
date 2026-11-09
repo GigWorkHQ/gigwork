@@ -53,7 +53,7 @@ function stubChain() {
   // Payouts kicked in the background fail against the offline chain stub by design; keep their logs out of the output.
   const original = console.error;
   console.error = (...args: unknown[]) => {
-    if (typeof args[0] === "string" && /^(Escrow|Settlement) .* (payout failed|failed to start)/.test(args[0])) return;
+    if (typeof args[0] === "string" && /^(Escrow|Settlement) .* (payout failed|failed to start|retry failed)/.test(args[0])) return;
     original(...args);
   };
   spyOn(publicClient, "readContract").mockImplementation((async (args: any) => {

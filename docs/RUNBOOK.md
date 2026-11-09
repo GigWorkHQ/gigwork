@@ -26,7 +26,7 @@ A transfer reverted, usually because the token issuer froze the recipient, or th
 2. Fix the cause: check the recipient on the explorer, and check the escrow's USDG balance.
 3. Click **Retry**. The transfer is signed again to the same recipient and amount, and the retry is logged.
 
-A job settlement that keeps failing shows in `payoutsPending` with an `error` on its `job_settlements` row. The keeper retries it every run.
+Job payouts are in the same queue (kind `job pay` or `job refund`). A job payout that reverts stops there instead of retrying. Its job page tells both parties that the funds are safe in escrow while the team fixes the cause.
 
 ## A client says their USDG is stuck
 

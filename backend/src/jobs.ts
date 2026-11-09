@@ -201,8 +201,8 @@ jobsRouter.get(
     const settlement = (await db.query<{ status: string; attempts: number; error: string | null }>(
       "SELECT status,attempts,error FROM job_settlements WHERE job_id=$1", [id])).rows[0];
     const payout = settlement && settlement.status === "pending"
-      ? { attempts: settlement.attempts, retrying: Boolean(settlement.error) && settlement.attempts > 1 }
-      : null;
+      ? { attempts: settlement.attempts, retrying: Boolean(settlement.error) && settlement.attempts > 1, failed: false }
+      : settlement?.status === "failed" ? { attempts: settlement.attempts, retrying: false, failed: true } : null;
     response.json({ data: { ...presentJob(job), review, payout } });
   }),
 );

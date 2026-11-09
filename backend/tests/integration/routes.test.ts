@@ -141,6 +141,40 @@ describe.skipIf(!enabled)("routes against real Postgres", () => {
       return { referrer, referee };
     }
     const bonuses = async (user: User) => (await call("GET", "/v1/referrals", user.token)).body.data.bonuses;
+    // A real customer: on GigWork for months, and has paid other, unrelated workers.
+    async function establishedClient() {
+      const client = await newUser();
+      await db.query("UPDATE users SET created_at=now()-interval '90 days' WHERE id=$1", [client.id]);
+      for (let i = 0; i < 2; i++) await completedJobs(client.id, (await newUser()).id, 1);
+      return client;
+    }
+
+    test("fresh wallets posing as clients do not count, even paying real amounts (R-1)", async () => {
+      const { referee } = await referredPair();
+      // Three brand-new client wallets, each paying the referee 1 USDG x 4. The money just loops back to the farmer.
+      for (let i = 0; i < 3; i++) await completedJobs((await newUser()).id, referee.id, 4);
+      expect(await bonuses(referee)).toEqual([]);
+      // Old wallets that have never paid anyone else don't count either.
+      for (let i = 0; i < 3; i++) {
+        const aged = await newUser();
+        await db.query("UPDATE users SET created_at=now()-interval '90 days' WHERE id=$1", [aged.id]);
+        await completedJobs(aged.id, referee.id, 4);
+      }
+      expect(await bonuses(referee)).toEqual([]);
+      const progress = (await call("GET", "/v1/referrals", referee.token)).body.data.myProgress;
+      expect(progress).toMatchObject({ approved: 0, clients: 0 });
+    });
+
+    test("swapping work with the referee does not count: a client the referee has paid is linked", async () => {
+      const { referee } = await referredPair();
+      const partners = [];
+      for (let i = 0; i < 3; i++) partners.push(await establishedClient());
+      for (const partner of partners) {
+        await completedJobs(partner.id, referee.id, 4);
+        await completedJobs(referee.id, partner.id, 1); // the referee pays them back
+      }
+      expect(await bonuses(referee)).toEqual([]);
+    });
 
     test("self-dealt work never qualifies: referrer as client, or one client, or dust", async () => {
       const { referrer, referee } = await referredPair();
@@ -166,7 +200,7 @@ describe.skipIf(!enabled)("routes against real Postgres", () => {
 
     test("real third-party work creates bonuses that wait for team approval before a claim", async () => {
       const { referrer, referee } = await referredPair();
-      for (let i = 0; i < 3; i++) await completedJobs((await newUser()).id, referee.id, 4);
+      for (let i = 0; i < 3; i++) await completedJobs((await establishedClient()).id, referee.id, 4);
       const [bonus] = await bonuses(referee);
       expect(bonus.status).toBe("pending_review");
       expect((await call("POST", `/v1/referrals/bonuses/${bonus.id}/claim`, referee.token)).body.error.code).toBe("bonus_pending_review");
@@ -174,7 +208,10 @@ describe.skipIf(!enabled)("routes against real Postgres", () => {
 
       const team = await teamUser();
       const pending = await call("GET", "/v1/team/referral-bonuses", team.token);
-      expect(pending.body.data.find((b: any) => b.id === bonus.id).distinctClients).toBe(3);
+      const review = pending.body.data.find((b: any) => b.id === bonus.id);
+      expect(review.distinctClients).toBe(3);
+      expect(review.clients).toHaveLength(3);
+      expect(review.clients.every((c: any) => c.counted && c.otherWorkers === 2 && c.items === 4)).toBe(true);
       expect((await call("POST", `/v1/team/referral-bonuses/${bonus.id}/approve`, team.token)).status).toBe(200);
       expect((await call("POST", `/v1/team/referral-bonuses/${bonus.id}/approve`, team.token)).status).toBe(409);
 
@@ -271,5 +308,33 @@ describe.skipIf(!enabled)("routes against real Postgres", () => {
     expect(row.signed_tx).toBeNull();
     expect((await db.query("SELECT count(*)::int AS n FROM escrow_transfer_retries WHERE transfer_id=$1", [transfer])).rows[0].n).toBe(1);
     expect((await call("POST", `/v1/team/payouts/${transfer}/retry`, (await newUser()).token)).status).toBe(403);
+  });
+  test("a reverted job payout stops in a failed state and resumes through a logged team retry", async () => {
+    const team = await teamUser();
+    const client = await newUser();
+    const job = await createJob(client, "1");
+    await db.query("UPDATE jobs SET status='settlement_pending' WHERE id=$1", [job.id]);
+    const settlement = (await db.query(
+      `INSERT INTO job_settlements (job_id,outcome,recipient,amount_raw,status,phase,payout_nonce,payout_signed_tx,payout_tx_hash,error,attempts)
+       VALUES ($1,'refund_client',$2,1000000,'failed','payout',0,'0x00','0x${"4".repeat(64)}','Transaction reverted',3) RETURNING id`,
+      [job.id, client.wallet])).rows[0].id;
+    // The keeper leaves it alone, and both parties see why.
+    const { reconcileSettlements } = await import("../../src/settlement.js");
+    await reconcileSettlements();
+    expect((await db.query("SELECT status FROM job_settlements WHERE id=$1", [settlement])).rows[0].status).toBe("failed");
+    expect((await call("GET", `/v1/jobs/${job.id}`, client.token)).body.data.payout).toMatchObject({ failed: true });
+    expect((await call("GET", "/health/ops")).body.data.payoutsFailed).toBeGreaterThanOrEqual(1);
+
+    const listed = await call("GET", "/v1/team/payouts/failed", team.token);
+    expect(listed.body.data.find((p: any) => p.id === settlement)).toMatchObject({ kind: "job_refund", escrowKind: "job" });
+    expect((await call("POST", `/v1/team/payouts/${settlement}/retry`, client.token)).status).toBe(403);
+    expect((await call("POST", `/v1/team/payouts/${settlement}/retry`, team.token)).status).toBe(200);
+    const row = (await db.query("SELECT status,payout_signed_tx,payout_nonce FROM job_settlements WHERE id=$1", [settlement])).rows[0];
+    expect(row.payout_signed_tx).toBeNull();
+    expect(row.payout_nonce).toBeNull();
+    expect(["pending", "failed"]).toContain(row.status); // the retry runs at once against the offline test chain
+    const retries = await db.query("SELECT failed_phase FROM job_settlement_retries WHERE settlement_id=$1", [settlement]);
+    expect(retries.rows).toEqual([{ failed_phase: "payout" }]);
+    expect((await call("POST", `/v1/team/payouts/${settlement}/retry`, team.token)).status).toBe(409);
   });
 });

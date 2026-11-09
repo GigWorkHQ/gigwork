@@ -9,7 +9,7 @@ export async function opsStatus() {
     publicClient.getBalance({ address: gasWalletAddress }).catch(() => null),
     db.query<{ pending: string; failed: string; settlements_pending: string }>(
       `SELECT (SELECT count(*) FROM escrow_transfers WHERE status='pending')::text AS pending,
-              (SELECT count(*) FROM escrow_transfers WHERE status='failed')::text AS failed,
+              (SELECT (SELECT count(*) FROM escrow_transfers WHERE status='failed') + (SELECT count(*) FROM job_settlements WHERE status='failed'))::text AS failed,
               (SELECT count(*) FROM job_settlements WHERE status='pending')::text AS settlements_pending`,
     ),
   ]);

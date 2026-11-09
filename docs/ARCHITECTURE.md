@@ -46,7 +46,7 @@ These hold for every escrow, and the tests check them (`backend/tests/integratio
 | SQL injection | Parameterised queries only | — |
 | Session theft or replay | SIWE with a single-use, expiring nonce bound to the domain and chain; tokens stored hashed with a pepper | Bearer tokens in browser storage |
 | Leaked agent API key | Keys can't manage keys, claim bonuses, recover funds or use team routes | A key can still post work and read its owner's submissions until revoked |
-| Referral farming (self-dealt work) | Counts only work of at least 1 USDG from 3 or more distinct clients that are not the referee, the referrer, or linked to either through the referral graph; team approval before any claim; the bonus is capped at 25 USDG by config | A determined sybil with real capital and unlinked wallets still has to pass team review |
+| Referral farming (self-dealt work) | Counts only work of at least 1 USDG from 3 or more established clients. Each must be on GigWork 30+ days, have paid 2+ other unlinked workers, and not be linked to the referee or referrer by invite or by payments either way. Team approval comes before any claim, and the review shows each client's evidence. The bonus is capped at 25 USDG by config | A patient sybil can age wallets and pay sock workers; the team review is the final control |
 | Gas-wallet drain | 0.1 USDG minimum per listing; 100 new listings per client per day; per-IP write limits; low-balance alerts | Payouts pause if the wallet empties; no funds are lost |
 | Stuck deposits | Client recovery for every escrow kind; expired jobs refund through cancel | — |
 | Double payout after a restart | Signed transactions persisted before broadcast; only a definite not-found clears a send | — |
@@ -88,6 +88,8 @@ Fixes made in response:
 | Advisories: body-parser (via express 5.1.0), zod 3.25.76 | express 5.3.0, body-parser 2.4.0, zod 4.6.7 |
 | Testing | Postgres 16 in CI; route tests for every auth rule; randomized model-based escrow invariant test |
 | Ops and docs | README, SECURITY.md, LICENSE, `.env.example`, this file, RUNBOOK.md, team action log, CI hardening |
+| Re-audit R-1: fresh wallets could pose as clients | Clients must be established (age, plus independent payments to other workers); paying the referee's partners back links them; team review shows per-client evidence |
+| Re-audit R-2: a reverted job payout was re-broadcast forever | Job settlements now stop in a failed state, appear in the failed-payout queue and `/health/ops`, and resume through a logged team retry |
 | Found while fixing | `/v1/cron/settle` was unreachable because the account router's auth answered first; it is now mounted first |
 
 ## Roadmap

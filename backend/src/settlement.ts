@@ -224,9 +224,28 @@ export async function processSettlement(jobId: string) {
     } catch (error) { await client.query("ROLLBACK"); throw error; }
     finally { client.release(); }
   } catch (error) {
-    await db.query("UPDATE job_settlements SET lease_until=NULL,error=$2,updated_at=now() WHERE job_id=$1", [jobId, String(error).slice(0, 2_000)]);
+    // A reverted transaction will revert again if re-sent, so the settlement stops here and waits for a team retry
+    // (Team → Failed payouts) instead of being re-broadcast by the keeper every run.
+    const status = error instanceof RevertedError ? "failed" : "pending";
+    await db.query("UPDATE job_settlements SET status=$3,lease_until=NULL,error=$2,updated_at=now() WHERE job_id=$1 AND status='pending'",
+      [jobId, String(error).slice(0, 2_000), status]);
     throw error;
   }
+}
+
+// Team retry of a failed job settlement: clear the stage that reverted (its nonce was used, so it is signed afresh)
+// and put the settlement back in the keeper's queue. Same recipient, same amount.
+export async function retryFailedSettlement(client: { query: (text: string, values?: any[]) => Promise<{ rows: any[]; rowCount: number | null }> }, settlementId: string, actorId: string) {
+  const failed = await client.query(
+    "SELECT job_id,phase,error FROM job_settlements WHERE id=$1 AND status='failed' FOR UPDATE", [settlementId]);
+  if (!failed.rowCount) return null;
+  const { job_id: jobId, phase, error } = failed.rows[0] as { job_id: string; phase: "gas" | "payout" | "sweep"; error: string | null };
+  await client.query(
+    `UPDATE job_settlements SET status='pending',${phase}_nonce=NULL,${phase}_signed_tx=NULL,${phase}_tx_hash=NULL,
+       error=NULL,lease_until=NULL,updated_at=now() WHERE id=$1`, [settlementId]);
+  await client.query("INSERT INTO job_settlement_retries (settlement_id,retried_by,failed_phase,previous_error) VALUES ($1,$2,$3,$4)",
+    [settlementId, actorId, phase, error]);
+  return jobId;
 }
 
 export async function reconcileSettlements() {

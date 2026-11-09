@@ -6,7 +6,7 @@ import { config } from "./config.js";
 import { decryptPayload, encryptPayload } from "./crypto.js";
 import { db } from "./db/index.js";
 import { ApiError, asyncRoute } from "./http.js";
-import { amountInput, fromRaw, party, resolveUser, toRaw, uuid, withTransaction, type Queryable } from "./common.js";
+import { amountInput, assertDailyCreateLimit, fromRaw, party, resolveUser, toRaw, uuid, withTransaction, type Queryable } from "./common.js";
 import { createEscrowAccount, createTransfer, kickEscrow, transfersFor, verifyDeposit } from "./ledger.js";
 import { casesFor, openReviewCase, registerReviewSubject } from "./reviews.js";
 
@@ -177,6 +177,7 @@ gigsRouter.post("/", asyncRoute(async (request, response) => {
   const id = await withTransaction(async (client) => {
     const invited = input.worker ? await resolveUser(client, input.worker) : null;
     if (invited?.id === request.auth!.userId) throw new ApiError(400, "cannot_invite_self", "You cannot invite yourself.");
+    await assertDailyCreateLimit(client, request.auth!.userId);
     const escrow = await createEscrowAccount(client, "gig");
     const created = await client.query<{ id: string }>(
       `INSERT INTO gigs (client_id,invited_worker_id,escrow_id,title,description,category,review_hours)

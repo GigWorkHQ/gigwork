@@ -1,0 +1,11 @@
+# gitleaks configuration: the default rules, minus deliberate, non-secret test fixtures.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "CI and test fixtures that look like secrets but are public placeholders"
+paths = [
+  '''^\.github/workflows/backend\.yml$''',
+  '''^backend/tests/''',
+  '''^backend/\.env\.example$''',
+]

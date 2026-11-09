@@ -71,12 +71,14 @@ describe("job cancellation and default approval", () => {
 });
 
 describe("referrals and history", () => {
-  test("referral bonus needs approved work and time", () => {
+  test("referral bonus needs approved work, distinct clients and time", () => {
     const now = new Date("2026-10-27T00:00:00Z");
     const eightDays = new Date(now.getTime() - 8 * 86_400_000);
-    expect(referralEligible(10, eightDays, now)).toBe(true);
-    expect(referralEligible(9, eightDays, now)).toBe(false);
-    expect(referralEligible(10, new Date(now.getTime() - 86_400_000), now)).toBe(false);
+    expect(referralEligible({ approved: 10, clients: 3 }, eightDays, now)).toBe(true);
+    expect(referralEligible({ approved: 9, clients: 3 }, eightDays, now)).toBe(false);
+    // Ten jobs from one or two clients is the self-dealing pattern; it never qualifies.
+    expect(referralEligible({ approved: 10, clients: 2 }, eightDays, now)).toBe(false);
+    expect(referralEligible({ approved: 10, clients: 3 }, new Date(now.getTime() - 86_400_000), now)).toBe(false);
   });
   test("history commitments are salted and order-independent for transactions", () => {
     const entry = { kind: "milestone", ref: "r", title: "Logo", client: "@acme", amountRaw: "1000000", date: "2026-10-27", transactions: ["0xb", "0xa"] };

@@ -27,9 +27,21 @@ const env = z
     REVIEW_DRAW_DELAY_MINUTES: z.coerce.number().int().min(0).max(1440).default(60),
     REVIEW_DEADLINE_HOURS: z.coerce.number().int().min(1).max(336).default(72),
     DISPUTE_WINDOW_HOURS: z.coerce.number().int().min(1).max(336).default(72),
-    REFERRAL_BONUS_USDG: z.string().regex(/^\d+(\.\d+)?$/).default("3"),
+    // Bounded so a mistyped env value can't turn one referral into a large payout.
+    REFERRAL_BONUS_USDG: z.string().regex(/^\d+(\.\d+)?$/).refine((v) => Number(v) > 0 && Number(v) <= 25, "REFERRAL_BONUS_USDG must be above 0 and at most 25.").default("3"),
     REFERRAL_MAX_INVITES: z.coerce.number().int().min(0).max(100).default(5),
     REFERRAL_MIN_APPROVED: z.coerce.number().int().min(1).max(1000).default(10),
+    // Referral work only counts when it pays at least this much and comes from this many distinct, unlinked clients.
+    REFERRAL_MIN_ITEM_USDG: z.string().regex(/^\d+(\.\d+)?$/).default("1"),
+    REFERRAL_MIN_CLIENTS: z.coerce.number().int().min(1).max(100).default(3),
+    MIN_AMOUNT_USDG: z.string().regex(/^\d+(\.\d+)?$/).refine((v) => Number(v) > 0, "MIN_AMOUNT_USDG must be above 0.").default("0.1"),
+    DAILY_CREATE_LIMIT: z.coerce.number().int().min(1).max(10_000).default(100),
+    // Requests per minute per IP: sign-in routes, and every write.
+    RATE_LIMIT_AUTH_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(20),
+    RATE_LIMIT_WRITE_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(120),
+    // The keeper posts an alert here (Slack/Discord-compatible JSON) when the gas wallet runs low.
+    GAS_ALERT_WEBHOOK_URL: z.string().url().optional(),
+    GAS_ALERT_MIN_ETH: z.string().regex(/^\d+(\.\d+)?$/).default("0.0005"),
     REFERRAL_MIN_DAYS: z.coerce.number().int().min(0).max(365).default(7),
     // Comma list of SYMBOL:0xaddress stock tokens workers may elect. Empty keeps payouts USDG-only.
     STOCK_TOKENS: z.string().default(""),

@@ -24,11 +24,14 @@ export function TeamConsole({live,notify}){
  const{session}=live;const[tab,setTab]=useState('cases');
  if(!session)return <Panel title="Team"><SignInPrompt live={live} text="Sign in with a GigWork team wallet."/></Panel>;
  if(!live.isTeam)return <Panel title="Team"><Empty title="Team wallets only" text="This wallet is not on the GigWork team list."/></Panel>;
- return <><div className="market-tabs live-toolbar">{[['cases','Review cases'],['disputes','Job disputes'],['reviewers','Reviewers'],['vault','Bonus budget']].map(([id,t])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}>{t}</button>)}</div>
+ return <><div className="market-tabs live-toolbar">{[['cases','Review cases'],['disputes','Job disputes'],['reviewers','Reviewers'],['bonuses','Bonus approvals'],['vault','Bonus budget'],['payouts','Failed payouts'],['log','Action log']].map(([id,t])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}>{t}</button>)}</div>
   {tab==='cases'&&<TeamCases session={session} notify={notify}/>}
   {tab==='disputes'&&<TeamDisputes live={live} notify={notify}/>}
   {tab==='reviewers'&&<Reviewers session={session} notify={notify}/>}
+  {tab==='bonuses'&&<BonusApprovals session={session} notify={notify}/>}
   {tab==='vault'&&<BonusVault session={session}/>}
+  {tab==='payouts'&&<FailedPayouts session={session} notify={notify}/>}
+  {tab==='log'&&<ActionLog session={session}/>}
  </>;
 }
 
@@ -44,6 +47,30 @@ function Reviewers({session,notify}){
  return <Panel title="Independent reviewers" subtitle="Cases are drawn at random from active reviewers, excluding the client and worker on the case.">
   <form className="share-bar" onSubmit={add}><input value={user} onChange={e=>setUser(e.target.value)} placeholder="@handle or 0x wallet" aria-label="Reviewer handle or wallet"/><Button type="submit" className="small" disabled={busy||!user.trim()}><UserPlus size={15}/>Add reviewer</Button></form>
   {list.error?<ErrorNotice message={list.error} onRetry={list.reload}/>:!list.data?<p className="live-loading">Loading…</p>:list.data.length?<div className="work-table">{list.data.map(r=><div className="work-row" key={r.userId}><div><b>{r.handle||r.wallet}</b><span className="mono">{r.wallet}</span></div><span>{r.assigned} open · {r.resolved} resolved</span><span>{r.active?'Active':'Inactive'}</span>{r.active?<button className="text-link" onClick={async()=>{try{await team.deactivateReviewer(session.token,r.userId);notify('Reviewer deactivated; their open cases will be redrawn.');list.reload()}catch(e){notify(errorMessage(e))}}}>Deactivate</button>:<button className="text-link" onClick={async()=>{try{await team.addReviewer(session.token,r.wallet);list.reload()}catch(e){notify(errorMessage(e))}}}>Reactivate</button>}</div>)}</div>:<Empty title="No reviewers yet" text="Without reviewers, every case goes straight to the team."/>}
+ </Panel>;
+}
+
+// Referral bonuses wait here until a team wallet approves them; the counts show only third-party work.
+function BonusApprovals({session,notify}){
+ const list=useLoader(()=>team.referralBonuses(session.token),[]);const[busy,setBusy]=useState('');
+ async function decide(id,decision){if(busy)return;setBusy(id);try{await team.reviewBonus(session.token,id,decision);notify(decision==='approve'?'Bonus approved. The recipient can claim it now.':'Bonus rejected.');list.reload()}catch(e){notify(errorMessage(e))}finally{setBusy('')}}
+ return <Panel title="Referral bonus approvals" subtitle="A bonus is created once the invitee has enough paid work from distinct clients not linked to either wallet. Check the pattern before approving." action={<button className="text-link" onClick={list.reload}><RefreshCcw size={14}/>Refresh</button>}>
+  {list.error?<ErrorNotice message={list.error} onRetry={list.reload}/>:!list.data?<p className="live-loading">Loading…</p>:list.data.length?<div className="work-table">{list.data.map(b=><div className="work-row" key={b.id}><div><b>{b.role==='referrer'?'Referrer':'Invitee'} · {b.recipient}</b><span>Invitee {b.referee} · {b.qualifyingWork} qualifying pieces from {b.distinctClients} clients · {date(b.createdAt)}</span></div><strong>{b.amount}<small>USDG</small></strong><button className="text-link" disabled={busy===b.id} onClick={()=>decide(b.id,'reject')}>Reject</button><Button className="small" disabled={busy===b.id} onClick={()=>decide(b.id,'approve')}>Approve</Button></div>)}</div>:<Empty title="Nothing to review" text="No referral bonuses are waiting for approval."/>}
+ </Panel>;
+}
+
+function FailedPayouts({session,notify}){
+ const list=useLoader(()=>team.failedPayouts(session.token),[]);const[busy,setBusy]=useState('');
+ async function retry(id){if(busy)return;setBusy(id);try{await team.retryPayout(session.token,id);notify('Payout queued again.');list.reload()}catch(e){notify(errorMessage(e))}finally{setBusy('')}}
+ return <Panel title="Failed payouts" subtitle="A payout fails when its transfer reverts, for example if the token issuer froze the recipient. Fix the cause, then retry. Every retry is logged." action={<button className="text-link" onClick={list.reload}><RefreshCcw size={14}/>Refresh</button>}>
+  {list.error?<ErrorNotice message={list.error} onRetry={list.reload}/>:!list.data?<p className="live-loading">Loading…</p>:list.data.length?<div className="work-table">{list.data.map(t=><div className="work-row" key={t.id}><div><b>{t.kind.replace(/_/g,' ')} · {t.escrowKind.replace(/_/g,' ')}</b><span className="mono">{t.recipient}</span><span>{(t.error||'').slice(0,140)}</span></div><strong>{t.amount}<small>USDG</small></strong><span>{date(t.failedAt)}</span><Button className="small" disabled={busy===t.id} onClick={()=>retry(t.id)}>Retry</Button></div>)}</div>:<Empty title="No failed payouts" text="Every escrow payout has been sent or is on its way."/>}
+ </Panel>;
+}
+
+function ActionLog({session}){
+ const list=useLoader(()=>team.actions(session.token),[]);
+ return <Panel title="Team action log" subtitle="Dispute rulings, reviewer changes, bonus decisions and payout retries, newest first." action={<button className="text-link" onClick={list.reload}><RefreshCcw size={14}/>Refresh</button>}>
+  {list.error?<ErrorNotice message={list.error} onRetry={list.reload}/>:!list.data?<p className="live-loading">Loading…</p>:list.data.length?<ol className="live-events">{list.data.map(a=><li key={a.id}><span className="mono">{date(a.at)}</span>{a.action.replace(/[._]/g,' ')} · by {a.by.slice(0,6)}…{a.by.slice(-4)}</li>)}</ol>:<Empty title="No team actions yet" text="Team actions will be listed here."/>}
  </Panel>;
 }
 

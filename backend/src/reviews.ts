@@ -7,7 +7,7 @@ import { config } from "./config.js";
 import { decryptPayload, encryptPayload } from "./crypto.js";
 import { db } from "./db/index.js";
 import { ApiError, asyncRoute } from "./http.js";
-import { resolveUser, uuid, withTransaction, type Queryable } from "./common.js";
+import { logTeamAction, resolveUser, uuid, withTransaction, type Queryable } from "./common.js";
 
 // Review cases replace "the team decides everything": a rejected or disputed piece of work is drawn to a
 // random external reviewer after a delay, who has a deadline. One redraw, then the team takes it.
@@ -206,7 +206,9 @@ teamReviewsRouter.get("/reviews/:id", asyncRoute(async (request, response) => {
 
 teamReviewsRouter.post("/reviews/:id/resolve", asyncRoute(async (request, response) => {
   const id = uuid.parse(request.params.id);
-  await resolveCase(id, request.auth!.userId, true, resolveInput.parse(request.body));
+  const input = resolveInput.parse(request.body);
+  await resolveCase(id, request.auth!.userId, true, input);
+  await logTeamAction(db, request.auth!.userId, "review.team_resolve", id, { outcome: input.outcome });
   response.status(202).json({ data: { id, status: "resolved" } });
 }));
 
@@ -226,16 +228,20 @@ teamReviewsRouter.get("/reviewers", asyncRoute(async (_request, response) => {
 teamReviewsRouter.post("/reviewers", asyncRoute(async (request, response) => {
   const reference = z.string().trim().min(1).max(64).parse(request.body?.user);
   const user = await resolveUser(db, reference);
-  await db.query(
-    `INSERT INTO reviewers (user_id,added_by) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET active=true`,
-    [user.id, request.auth!.userId],
-  );
+  await withTransaction(async (client) => {
+    await client.query(
+      `INSERT INTO reviewers (user_id,added_by) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET active=true`,
+      [user.id, request.auth!.userId],
+    );
+    await logTeamAction(client, request.auth!.userId, "reviewer.add", user.id, { wallet: user.wallet_address });
+  });
   response.status(201).json({ data: { userId: user.id, wallet: user.wallet_address, active: true } });
 }));
 
 teamReviewsRouter.post("/reviewers/:userId/deactivate", asyncRoute(async (request, response) => {
   const userId = uuid.parse(request.params.userId);
   await db.query("UPDATE reviewers SET active=false WHERE user_id=$1", [userId]);
+  await logTeamAction(db, request.auth!.userId, "reviewer.deactivate", userId);
   // Unassign open cases so they are redrawn rather than waiting on an inactive reviewer.
   await db.query(
     `UPDATE review_cases SET status='waiting',reviewer_id=NULL,due_at=NULL,draw_after=now(),excluded_reviewers=array_append(excluded_reviewers,$1)

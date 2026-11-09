@@ -6,7 +6,7 @@ import { decryptSecret, encryptSecret } from "./crypto.js";
 import { db } from "./db/index.js";
 import { gasAccount, publicClient, verifyJobFunding } from "./escrow.js";
 import { ApiError } from "./http.js";
-import type { Queryable } from "./common.js";
+import { withTransaction, type Queryable } from "./common.js";
 import { ETH_TRANSFER_GAS, GAS_WALLET_LOCK, RevertedError, StaleTxError, USDG_TRANSFER_GAS, nextGasNonce, payableGasPrice, sendPersisted, usdgPayoutTransaction } from "./settlement.js";
 
 // Multi-payout escrow accounts. Each batch, gig and contract gets its own key-encrypted wallet that
@@ -15,7 +15,7 @@ import { ETH_TRANSFER_GAS, GAS_WALLET_LOCK, RevertedError, StaleTxError, USDG_TR
 export type EscrowKind = "batch" | "gig" | "contract" | "bonus_vault";
 export type TransferKind =
   | "assignment_pay" | "batch_refund" | "milestone_pay" | "milestone_refund"
-  | "pay_period" | "pay_period_refund" | "referral_bonus";
+  | "pay_period" | "pay_period_refund" | "referral_bonus" | "surplus_refund";
 
 const escrowContext = (id: string) => `escrow:${id}`;
 
@@ -52,6 +52,46 @@ export async function usdgBalance(address: string) {
   });
 }
 
+// Where an escrow stands: its on-chain balance, what it still owes from recorded deposits, and any USDG above that.
+// Owed = recorded deposits minus payouts already on-chain, plus surplus refunds not yet sent. A pending payout counts
+// as paid only once its own transaction is mined, so a surplus is never overstated while a payout is in flight.
+export async function escrowPosition(client: Queryable, escrowId: string, address: string) {
+  const [balance, sums, inFlight] = await Promise.all([
+    usdgBalance(address),
+    client.query<{ deposits: string; paid: string; surplus_owed: string }>(
+      `SELECT
+         COALESCE((SELECT sum(amount_raw) FROM escrow_deposits WHERE escrow_id=$1),0)::text AS deposits,
+         COALESCE((SELECT sum(amount_raw) FROM escrow_transfers WHERE escrow_id=$1 AND status='complete' AND kind<>'surplus_refund'),0)::text AS paid,
+         COALESCE((SELECT sum(amount_raw) FROM escrow_transfers WHERE escrow_id=$1 AND status<>'complete' AND kind='surplus_refund'),0)::text AS surplus_owed`,
+      [escrowId],
+    ),
+    client.query<{ amount_raw: string; tx_hash: Hash; kind: string }>(
+      "SELECT amount_raw::text,tx_hash,kind FROM escrow_transfers WHERE escrow_id=$1 AND status='pending' AND tx_hash IS NOT NULL",
+      [escrowId],
+    ),
+  ]);
+  let minedPayouts = 0n;
+  let minedSurplus = 0n;
+  for (const transfer of inFlight.rows) {
+    const receipt = await publicClient.getTransactionReceipt({ hash: transfer.tx_hash }).catch(() => null);
+    if (receipt?.status !== "success") continue;
+    if (transfer.kind === "surplus_refund") minedSurplus += BigInt(transfer.amount_raw);
+    else minedPayouts += BigInt(transfer.amount_raw);
+  }
+  const deposits = BigInt(sums.rows[0].deposits);
+  const paid = BigInt(sums.rows[0].paid) + minedPayouts;
+  const surplusOwed = BigInt(sums.rows[0].surplus_owed) - minedSurplus;
+  const owed = deposits - paid + surplusOwed;
+  return { balance, owed, surplus: balance - owed };
+}
+
+// Serialise everything that changes what an escrow owes (deposit records, surplus refunds) on its account row.
+export async function lockEscrow(client: Queryable, escrowId: string) {
+  const row = await client.query<{ address: string; kind: EscrowKind }>("SELECT address,kind FROM escrow_accounts WHERE id=$1 FOR UPDATE", [escrowId]);
+  if (!row.rowCount) throw new ApiError(404, "escrow_not_found", "This escrow does not exist.");
+  return row.rows[0];
+}
+
 // Verify an exact USDG transfer from the client into an escrow and record it against one purpose.
 export async function verifyDeposit(
   client: Queryable,
@@ -62,6 +102,7 @@ export async function verifyDeposit(
     input.escrowAddress,
     input.txHash,
   );
+  await lockEscrow(client, input.escrowId);
   try {
     await client.query(
       `INSERT INTO escrow_deposits (escrow_id,purpose,ref_id,tx_hash,from_wallet,amount_raw,block_number)
@@ -72,7 +113,36 @@ export async function verifyDeposit(
     if (error?.code === "23505") throw new ApiError(409, "funding_tx_used", "This transaction has already been used to fund something else.");
     throw error;
   }
+  // The escrow must still hold the money this deposit claims: a transfer whose USDG was already returned by a surplus
+  // recovery cannot be recorded afterwards as funding.
+  const position = await escrowPosition(client, input.escrowId, input.escrowAddress).catch(() => {
+    throw new ApiError(503, "chain_unavailable", "Couldn't read the escrow balance just now. Try again in a moment.");
+  });
+  if (position.surplus < 0n)
+    throw new ApiError(409, "funding_not_held", "The escrow no longer holds this deposit. It may have been returned to you already.");
   return verified;
+}
+
+// Return USDG an escrow holds above what it owes to the client who owns it. Covers transfers that were never recorded:
+// a batch closed before /fund, a contract ended with a period's rate already sent, a wrong amount, or a deposit from a
+// Safe or smart wallet that verifyDeposit cannot match (audit M-2).
+export async function recoverSurplus(escrowId: string, requester: { userId: string; wallet: string }) {
+  const result = await withTransaction(async (client) => {
+    const escrow = await lockEscrow(client, escrowId);
+    if (escrow.kind === "bonus_vault") throw new ApiError(403, "not_recoverable", "The bonus budget cannot be recovered this way.");
+    const position = await escrowPosition(client, escrowId, escrow.address);
+    if (position.surplus <= 0n) throw new ApiError(409, "nothing_to_recover", "This escrow holds nothing beyond what it owes.");
+    const recovery = await client.query<{ id: string }>(
+      "INSERT INTO escrow_recoveries (escrow_id,requested_by,amount_raw) VALUES ($1,$2,$3) RETURNING id",
+      [escrowId, requester.userId, position.surplus.toString()],
+    );
+    await createTransfer(client, {
+      escrowId, kind: "surplus_refund", refId: recovery.rows[0].id, recipientId: requester.userId, recipient: requester.wallet, amountRaw: position.surplus,
+    });
+    return { recoveryId: recovery.rows[0].id, amountRaw: position.surplus };
+  });
+  kickEscrow(escrowId);
+  return result;
 }
 
 export async function depositFor(purpose: string, refId: string) {

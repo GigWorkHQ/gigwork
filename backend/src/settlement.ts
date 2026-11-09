@@ -1,4 +1,4 @@
-import { encodeFunctionData, erc20Abi, keccak256, type Address, type Hash, type Hex } from "viem";
+import { TransactionNotFoundError, TransactionReceiptNotFoundError, encodeFunctionData, erc20Abi, keccak256, type Address, type Hash, type Hex } from "viem";
 import { db } from "./db/index.js";
 import { config } from "./config.js";
 import { gasAccount, gasWalletAddress, loadEscrowAccount, publicClient } from "./escrow.js";
@@ -77,14 +77,32 @@ const waitFor = async (hash: Hash) => {
   return receipt;
 };
 
+// Only a definite "not found" from the node means a transaction is absent. Any other lookup failure (timeout, 5xx,
+// rate limit) is rethrown, so a restart mid-send never mistakes a mined payout for a dropped one and signs it again
+// at a new nonce (audit L-4).
+const isNotFound = (error: unknown, kind: typeof TransactionReceiptNotFoundError | typeof TransactionNotFoundError) =>
+  error instanceof kind || (error instanceof Error && error.name === kind.name);
+
+export async function receiptOrNull(hash: Hash) {
+  try { return await publicClient.getTransactionReceipt({ hash }); }
+  catch (error) { if (isNotFound(error, TransactionReceiptNotFoundError)) return null; throw error; }
+}
+
+export async function transactionOrNull(hash: Hash) {
+  try { return await publicClient.getTransaction({ hash }); }
+  catch (error) { if (isNotFound(error, TransactionNotFoundError)) return null; throw error; }
+}
+
 export async function sendPersisted(raw: Hex, hash: Hash) {
   try { await publicClient.sendRawTransaction({ serializedTransaction: raw }); }
   catch (error) {
     const message = String(error).toLowerCase();
     if (message.includes("nonce too low")) {
-      // Either this transaction was already mined, or another one took its nonce; only a receipt tells which.
-      const receipt = await publicClient.getTransactionReceipt({ hash }).catch(() => null);
-      if (!receipt) throw new StaleTxError(`Transaction ${hash} can't be mined: another transaction used its nonce.`);
+      // Either this transaction was already mined, or another one took its nonce. Only a definite absence of both its
+      // receipt and the transaction itself proves the second.
+      const receipt = await receiptOrNull(hash);
+      if (!receipt && !(await transactionOrNull(hash)))
+        throw new StaleTxError(`Transaction ${hash} can't be mined: another transaction used its nonce.`);
     } else if (isStaleRejection(message)) {
       throw new StaleTxError(`Transaction ${hash} was rejected: ${String(error).slice(0, 300)}`);
     } else if (!message.includes("already known") && !message.includes("known transaction")) throw error;
@@ -92,7 +110,7 @@ export async function sendPersisted(raw: Hex, hash: Hash) {
   try { return await waitFor(hash); }
   catch (error) {
     if (error instanceof RevertedError) throw error;
-    const known = await publicClient.getTransaction({ hash }).catch(() => null);
+    const known = await transactionOrNull(hash);
     if (!known) throw new StaleTxError(`Transaction ${hash} was dropped before it was mined.`);
     throw error;
   }

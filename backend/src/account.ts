@@ -7,7 +7,11 @@ import { config, stockExcludedCountries, stockTokens } from "./config.js";
 import { db } from "./db/index.js";
 import { parseHash, publicClient } from "./escrow.js";
 import { ApiError, asyncRoute } from "./http.js";
-import { HANDLE, RESERVED_HANDLES, fromRaw, toRaw, uuid, withTransaction } from "./common.js";
+import { HANDLE, RESERVED_HANDLES, fromRaw, logTeamAction, uuid, withTransaction } from "./common.js";
+import { parseUsdgAmount } from "./currency.js";
+
+// Operator-set amounts skip the per-listing minimum that toRaw applies to client input.
+const configRaw = (value: string) => parseUsdgAmount(value, config.USDG_DECIMALS);
 import { bonusVault, createTransfer, kickEscrow, usdgBalance } from "./ledger.js";
 
 export const accountRouter = Router();
@@ -314,29 +318,44 @@ publicRouter.get("/handles/:handle", asyncRoute(async (request, response) => {
 
 // ---------- Referrals ----------
 
-async function approvedWorkCount(userId: string) {
-  const result = await db.query<{ count: string }>(
-    `SELECT (
-       (SELECT count(*) FROM jobs WHERE doer_id=$1 AND status='completed') +
-       (SELECT count(*) FROM assignments WHERE worker_id=$1 AND status='credited') +
-       (SELECT count(*) FROM milestones m JOIN gigs g ON g.id=m.gig_id WHERE g.worker_id=$1 AND m.status IN ('approved','split')) +
-       (SELECT count(*) FROM pay_periods p JOIN contracts k ON k.id=p.contract_id WHERE k.worker_id=$1 AND p.status='paid')
-     )::text AS count`,
-    [userId],
+// Work counts toward a referral only when it was paid by a real third party: at least REFERRAL_MIN_ITEM_USDG, from a
+// client who is neither the referee nor the referrer, and not linked to either through the referral graph (invited
+// by, or invited, either of them). The referee also needs REFERRAL_MIN_CLIENTS distinct such clients. This closes
+// the self-dealt micro-job farm (audit H-1); team approval before any claim is the second line.
+async function qualifyingWork(refereeId: string, referrerId: string | null) {
+  const result = await db.query<{ approved: string; clients: string }>(
+    `WITH linked AS (
+       SELECT $1::uuid AS id UNION SELECT $2::uuid WHERE $2::uuid IS NOT NULL
+       UNION SELECT id FROM users WHERE referred_by IN ($1::uuid, $2::uuid)
+       UNION SELECT referred_by FROM users WHERE id IN ($1::uuid, $2::uuid) AND referred_by IS NOT NULL
+     ), work AS (
+       SELECT client_id FROM jobs WHERE doer_id=$1 AND status='completed' AND amount_raw>=$3
+       UNION ALL
+       SELECT b.client_id FROM assignments a JOIN batches b ON b.id=a.batch_id WHERE a.worker_id=$1 AND a.status='credited' AND b.pay_raw>=$3
+       UNION ALL
+       SELECT g.client_id FROM milestones m JOIN gigs g ON g.id=m.gig_id WHERE g.worker_id=$1 AND m.status IN ('approved','split') AND m.amount_raw>=$3
+       UNION ALL
+       SELECT k.client_id FROM pay_periods p JOIN contracts k ON k.id=p.contract_id WHERE k.worker_id=$1 AND p.status='paid' AND p.amount_raw>=$3
+     )
+     SELECT count(*)::text AS approved, count(DISTINCT client_id)::text AS clients
+     FROM work WHERE client_id NOT IN (SELECT id FROM linked)`,
+    [refereeId, referrerId, configRaw(config.REFERRAL_MIN_ITEM_USDG).toString()],
   );
-  return Number(result.rows[0].count);
+  return { approved: Number(result.rows[0].approved), clients: Number(result.rows[0].clients) };
 }
 
-export function referralEligible(approved: number, referredAt: Date, now = new Date()) {
-  return approved >= config.REFERRAL_MIN_APPROVED && now.getTime() - referredAt.getTime() >= config.REFERRAL_MIN_DAYS * 86_400_000;
+export function referralEligible(work: { approved: number; clients: number }, referredAt: Date, now = new Date()) {
+  return work.approved >= config.REFERRAL_MIN_APPROVED
+    && work.clients >= config.REFERRAL_MIN_CLIENTS
+    && now.getTime() - referredAt.getTime() >= config.REFERRAL_MIN_DAYS * 86_400_000;
 }
 
-// Create both bonuses once the referee qualifies. Pull-claimed later; nothing is paid automatically.
+// Create both bonuses once the referee qualifies. They wait for team review, then are pull-claimed.
 async function grantIfEligible(refereeId: string, referrerId: string, referredAt: Date) {
-  if (!referralEligible(await approvedWorkCount(refereeId), referredAt)) return;
-  const amount = toRaw(config.REFERRAL_BONUS_USDG).toString();
+  if (!referralEligible(await qualifyingWork(refereeId, referrerId), referredAt)) return;
+  const amount = configRaw(config.REFERRAL_BONUS_USDG).toString();
   await db.query(
-    `INSERT INTO referral_bonuses (referee_id,recipient_id,role,amount_raw) VALUES ($1,$2,'referrer',$4),($1,$3,'referee',$4)
+    `INSERT INTO referral_bonuses (referee_id,recipient_id,role,amount_raw,status) VALUES ($1,$2,'referrer',$4,'pending_review'),($1,$3,'referee',$4,'pending_review')
      ON CONFLICT (referee_id,role) DO NOTHING`,
     [refereeId, referrerId, refereeId, amount],
   );
@@ -360,7 +379,7 @@ async function vaultStatus() {
   const vault = await bonusVault();
   const [balance, pending] = await Promise.all([
     usdgBalance(vault.address).catch(() => null),
-    db.query<{ total: string | null }>("SELECT sum(amount_raw)::text AS total FROM escrow_transfers WHERE escrow_id=$1 AND status='pending'", [vault.id]),
+    db.query<{ total: string | null }>("SELECT sum(amount_raw)::text AS total FROM escrow_transfers WHERE escrow_id=$1 AND status IN ('pending','failed')", [vault.id]),
   ]);
   const committed = BigInt(pending.rows[0].total ?? "0");
   return { id: vault.id, address: vault.address, balanceRaw: balance, available: balance === null ? null : balance - committed };
@@ -375,7 +394,8 @@ accountRouter.get("/referrals", asyncRoute(async (request, response) => {
   const invitees = [];
   for (const user of invited.rows) {
     await grantIfEligible(user.id, userId, user.referred_at);
-    invitees.push({ who: user.handle ? `@${user.handle}` : `${user.wallet_address.slice(0, 6)}…${user.wallet_address.slice(-4)}`, approved: await approvedWorkCount(user.id), referredAt: user.referred_at });
+    const work = await qualifyingWork(user.id, userId);
+    invitees.push({ who: user.handle ? `@${user.handle}` : `${user.wallet_address.slice(0, 6)}…${user.wallet_address.slice(-4)}`, approved: work.approved, clients: work.clients, referredAt: user.referred_at });
   }
   const bonuses = await db.query<{ id: string; role: string; amount_raw: string; status: string; created_at: Date; claimed_at: Date | null; tx_hash: string | null; transfer_status: string | null }>(
     `SELECT b.id,b.role,b.amount_raw::text,b.status,b.created_at,b.claimed_at,t.tx_hash,t.status AS transfer_status
@@ -385,7 +405,7 @@ accountRouter.get("/referrals", asyncRoute(async (request, response) => {
   response.json({ data: {
     code: await referralCode(userId),
     referred: Boolean(me.rows[0].referred_by),
-    myProgress: me.rows[0].referred_by ? { approved: await approvedWorkCount(userId), referredAt: me.rows[0].referred_at } : null,
+    myProgress: me.rows[0].referred_by ? { ...(await qualifyingWork(userId, me.rows[0].referred_by)), referredAt: me.rows[0].referred_at } : null,
     invitees,
     bonuses: bonuses.rows.map((b) => ({
       id: b.id, role: b.role, amount: fromRaw(b.amount_raw), status: b.status, createdAt: b.created_at, claimedAt: b.claimed_at,
@@ -393,6 +413,7 @@ accountRouter.get("/referrals", asyncRoute(async (request, response) => {
     })),
     program: {
       bonus: config.REFERRAL_BONUS_USDG, minApproved: config.REFERRAL_MIN_APPROVED, minDays: config.REFERRAL_MIN_DAYS,
+      minClients: config.REFERRAL_MIN_CLIENTS, minItem: config.REFERRAL_MIN_ITEM_USDG, teamReview: true,
       maxInvites: config.REFERRAL_MAX_INVITES, budgetAvailable: vault.available === null ? null : fromRaw(vault.available < 0n ? 0n : vault.available),
     },
   } });
@@ -418,16 +439,20 @@ accountRouter.post("/referrals/redeem", requireWalletSession, asyncRoute(async (
 
 accountRouter.post("/referrals/bonuses/:id/claim", requireWalletSession, asyncRoute(async (request, response) => {
   const id = uuid.parse(request.params.id);
-  const vault = await vaultStatus();
+  const vault = await bonusVault();
   await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('gigwork:bonus_vault'))");
     const bonus = await client.query<{ status: string; amount_raw: string }>(
       "SELECT status,amount_raw::text FROM referral_bonuses WHERE id=$1 AND recipient_id=$2 FOR UPDATE", [id, request.auth!.userId]);
     if (!bonus.rowCount) throw new ApiError(404, "bonus_not_found", "This bonus does not exist.");
+    if (bonus.rows[0].status === "pending_review") throw new ApiError(409, "bonus_pending_review", "The team is still reviewing this bonus.");
+    if (bonus.rows[0].status === "rejected") throw new ApiError(409, "bonus_rejected", "This bonus was not approved.");
     if (bonus.rows[0].status !== "claimable") throw new ApiError(409, "bonus_claimed", "This bonus was already claimed.");
-    const pending = await client.query<{ total: string | null }>(
-      "SELECT sum(amount_raw)::text AS total FROM escrow_transfers WHERE escrow_id=$1 AND status='pending'", [vault.id]);
-    if (vault.balanceRaw === null || vault.balanceRaw - BigInt(pending.rows[0].total ?? "0") < BigInt(bonus.rows[0].amount_raw))
+    // Read the vault balance and what it already owes under the lock, so two claims can't both spend the same USDG.
+    const balance = await usdgBalance(vault.address).catch(() => null);
+    const owed = await client.query<{ total: string | null }>(
+      "SELECT sum(amount_raw)::text AS total FROM escrow_transfers WHERE escrow_id=$1 AND status IN ('pending','failed')", [vault.id]);
+    if (balance === null || balance - BigInt(owed.rows[0].total ?? "0") < BigInt(bonus.rows[0].amount_raw))
       throw new ApiError(409, "bonus_budget_exhausted", "The bonus budget is empty right now. Your bonus stays claimable.");
     await client.query("UPDATE referral_bonuses SET status='claimed',claimed_at=now() WHERE id=$1", [id]);
     await createTransfer(client, { escrowId: vault.id, kind: "referral_bonus", refId: id, recipientId: request.auth!.userId, recipient: request.auth!.walletAddress, amountRaw: bonus.rows[0].amount_raw });
@@ -449,6 +474,75 @@ teamAccountRouter.get("/bonus-vault", asyncRoute(async (_request, response) => {
     paid: fromRaw(paid.rows[0].total ?? "0"),
     paidCount: Number(paid.rows[0].count),
   } });
+}));
+
+type PendingBonus = { id: string; role: string; amount_raw: string; created_at: Date; recipient_wallet: string; recipient_handle: string | null; referee_id: string; referee_wallet: string; referee_handle: string | null; referrer_id: string | null };
+teamAccountRouter.get("/referral-bonuses", asyncRoute(async (_request, response) => {
+  const rows = await db.query<PendingBonus>(
+    `SELECT b.id,b.role,b.amount_raw::text,b.created_at,r.wallet_address AS recipient_wallet,r.handle AS recipient_handle,
+       e.id AS referee_id,e.wallet_address AS referee_wallet,e.handle AS referee_handle,e.referred_by AS referrer_id
+     FROM referral_bonuses b JOIN users r ON r.id=b.recipient_id JOIN users e ON e.id=b.referee_id
+     WHERE b.status='pending_review' ORDER BY b.created_at LIMIT 200`);
+  const data = [];
+  for (const row of rows.rows) {
+    const work = await qualifyingWork(row.referee_id, row.referrer_id);
+    data.push({
+      id: row.id, role: row.role, amount: fromRaw(row.amount_raw), createdAt: row.created_at,
+      recipient: row.recipient_handle ? `@${row.recipient_handle}` : row.recipient_wallet,
+      referee: row.referee_handle ? `@${row.referee_handle}` : row.referee_wallet,
+      qualifyingWork: work.approved, distinctClients: work.clients,
+    });
+  }
+  response.json({ data });
+}));
+
+teamAccountRouter.post("/referral-bonuses/:id/:decision", asyncRoute(async (request, response) => {
+  const id = uuid.parse(request.params.id);
+  const decision = z.enum(["approve", "reject"]).parse(request.params.decision);
+  const status = decision === "approve" ? "claimable" : "rejected";
+  await withTransaction(async (client) => {
+    const updated = await client.query(
+      "UPDATE referral_bonuses SET status=$2,reviewed_by=$3,reviewed_at=now() WHERE id=$1 AND status='pending_review'",
+      [id, status, request.auth!.userId]);
+    if (!updated.rowCount) throw new ApiError(409, "bonus_not_pending", "This bonus is not waiting for review.");
+    await logTeamAction(client, request.auth!.userId, `referral_bonus.${decision}`, id);
+  });
+  response.json({ data: { id, status } });
+}));
+
+// Failed payouts (a reverted transfer, e.g. the issuer froze the recipient) wait here for a team retry (audit L-5).
+teamAccountRouter.get("/payouts/failed", asyncRoute(async (_request, response) => {
+  const rows = await db.query<{ id: string; kind: string; recipient: string; amount_raw: string; error: string | null; attempts: number; updated_at: Date; escrow_kind: string }>(
+    `SELECT t.id,t.kind,t.recipient,t.amount_raw::text,t.error,t.attempts,t.updated_at,e.kind AS escrow_kind
+     FROM escrow_transfers t JOIN escrow_accounts e ON e.id=t.escrow_id WHERE t.status='failed' ORDER BY t.updated_at LIMIT 200`);
+  response.json({ data: rows.rows.map((r) => ({
+    id: r.id, kind: r.kind, escrowKind: r.escrow_kind, recipient: r.recipient, amount: fromRaw(r.amount_raw),
+    error: r.error, attempts: r.attempts, failedAt: r.updated_at,
+  })) });
+}));
+
+teamAccountRouter.post("/payouts/:id/retry", asyncRoute(async (request, response) => {
+  const id = uuid.parse(request.params.id);
+  const escrowId = await withTransaction(async (client) => {
+    const failed = await client.query<{ escrow_id: string; error: string | null }>(
+      "SELECT escrow_id,error FROM escrow_transfers WHERE id=$1 AND status='failed' FOR UPDATE", [id]);
+    if (!failed.rowCount) throw new ApiError(409, "payout_not_failed", "Only a failed payout can be retried.");
+    // The reverted transaction used its nonce, so the retry is signed fresh.
+    await client.query(
+      "UPDATE escrow_transfers SET status='pending',nonce=NULL,signed_tx=NULL,tx_hash=NULL,error=NULL,updated_at=now() WHERE id=$1", [id]);
+    await client.query("INSERT INTO escrow_transfer_retries (transfer_id,retried_by,previous_error) VALUES ($1,$2,$3)", [id, request.auth!.userId, failed.rows[0].error]);
+    await logTeamAction(client, request.auth!.userId, "payout.retry", id);
+    return failed.rows[0].escrow_id;
+  });
+  kickEscrow(escrowId);
+  response.json({ data: { id, status: "pending" } });
+}));
+
+teamAccountRouter.get("/actions", asyncRoute(async (_request, response) => {
+  const rows = await db.query<{ id: string; action: string; subject_id: string | null; details: unknown; created_at: Date; wallet_address: string }>(
+    `SELECT a.id,a.action,a.subject_id,a.details,a.created_at,u.wallet_address FROM team_actions a JOIN users u ON u.id=a.actor_id
+     ORDER BY a.created_at DESC LIMIT 200`);
+  response.json({ data: rows.rows.map((r) => ({ id: r.id, action: r.action, subjectId: r.subject_id, details: r.details, at: r.created_at, by: r.wallet_address })) });
 }));
 
 // ---------- Tips ----------

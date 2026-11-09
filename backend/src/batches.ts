@@ -6,7 +6,7 @@ import { config } from "./config.js";
 import { decryptPayload, encryptPayload, payloadDigest } from "./crypto.js";
 import { db } from "./db/index.js";
 import { ApiError, asyncRoute } from "./http.js";
-import { amountInput, fromRaw, toRaw, uuid, withTransaction } from "./common.js";
+import { amountInput, assertDailyCreateLimit, fromRaw, toRaw, uuid, withTransaction } from "./common.js";
 import { createEscrowAccount, createTransfer, depositFor, kickEscrow, transfersFor, verifyDeposit } from "./ledger.js";
 import { casesFor, openReviewCase, registerReviewSubject } from "./reviews.js";
 
@@ -174,6 +174,7 @@ batchesRouter.post("/", asyncRoute(async (request, response) => {
   }
   const total = batchTotal(payRaw, input.items.length, input.workersPerItem);
   const id = await withTransaction(async (client) => {
+    await assertDailyCreateLimit(client, request.auth!.userId);
     const escrow = await createEscrowAccount(client, "batch");
     const created = await client.query<{ id: string }>(
       `INSERT INTO batches (client_id,escrow_id,source,task_type,title,instructions,pay_raw,minutes,items_count,workers_per_item,

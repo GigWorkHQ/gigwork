@@ -1,0 +1,11 @@
+Copyright (c) 2026 GigWork. All rights reserved.
+
+This repository is published so that anyone can read and review the code that handles GigWork escrow and payouts.
+No license is granted to copy, modify, distribute, or run this software, in whole or in part, except as required
+for that review or with prior written permission from GigWork (gigwork@atomicmail.io).
+
+Third-party components remain under their own licenses; see docs/licenses and docs/ASSET-NOTICES.md.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.

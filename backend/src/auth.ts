@@ -141,9 +141,15 @@ export function isTeamWallet(address: string, authorizedWallets: ReadonlySet<str
   return authorizedWallets.has(address.toLowerCase());
 }
 
+// Team powers (dispute rulings, reviewer changes, bonus approval, payout retries) need a live wallet session:
+// an agent API key minted by a team wallet must never carry them.
 export function requireTeam(request: Request, _response: Response, next: NextFunction) {
   if (!request.auth || !isTeamWallet(request.auth.walletAddress)) {
     next(new ApiError(403, "team_only", "Only an authorized GigWork team wallet can perform this action."));
+    return;
+  }
+  if (request.auth.viaApiKey) {
+    next(new ApiError(403, "wallet_session_required", "Team actions need a wallet sign-in; API keys cannot perform them."));
     return;
   }
   next();

@@ -19,8 +19,25 @@ jobs:
     name: Type-check and test
     if: github.repository == 'gigworkhq/gigwork'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: gigwork_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d gigwork_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       NODE_ENV: test
+      DB_TESTS: "1"
+      RATE_LIMIT_AUTH_PER_MINUTE: "10000"
+      RATE_LIMIT_WRITE_PER_MINUTE: "100000"
       DATABASE_URL: postgresql://test:test@localhost:5432/gigwork_test
       RH_CHAIN_ID: "46630"
       RH_RPC_URL: http://127.0.0.1:8545
@@ -44,7 +61,7 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
@@ -56,16 +73,42 @@ jobs:
         working-directory: backend
         run: bun run check
 
-      - name: Run backend unit suites
+      - name: Run backend unit, route and escrow-invariant suites (real Postgres 16)
         working-directory: backend
         run: bun run test
 
       - name: Run frontend domain suite
         run: bun run test
 
+  supply-chain:
+    name: Advisories and secret scan
+    if: github.repository == 'gigworkhq/gigwork'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Fail on known advisories in backend dependencies (OSV)
+        run: python3 scripts/osv-check.py backend/bun.lock
+
+      - name: Report advisories in frontend dependencies (OSV)
+        run: python3 scripts/osv-check.py --report-only bun.lock
+
+      - name: Scan history for committed secrets (gitleaks 8.30.1)
+        env:
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl --fail --silent --show-error --location --output gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "$GITLEAKS_SHA256  gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks git --redact --no-banner --exit-code 1 .
+
   build:
     name: Build backend image
-    needs: test
+    needs: [test, supply-chain]
     if: github.repository == 'gigworkhq/gigwork' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     steps:
@@ -148,12 +191,36 @@ jobs:
             if [ "$commit" = "$GITHUB_SHA" ] && \
               curl --fail --silent --max-time 5 "$BACKEND_URL/health/ready" > /dev/null; then
               echo "Commit $GITHUB_SHA is serving and ready."
-              exit 0
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              echo "::error::Commit $GITHUB_SHA was not serving and ready at $BACKEND_URL within 10 minutes."
+              exit 1
             fi
             sleep 10
           done
-          echo "::error::Commit $GITHUB_SHA was not serving and ready at $BACKEND_URL within 10 minutes."
-          exit 1
+
+      - name: Verify live chain configuration
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          EXPECTED_CHAIN_ID: "4663"
+          EXPECTED_USDG: "0x5fc5360d0400a0fd4f2af552add042d716f1d168"
+          EXPECTED_DECIMALS: "6"
+        run: |
+          BACKEND_URL="${BACKEND_URL%/}"
+          config=$(curl --fail --silent --show-error --max-time 10 "$BACKEND_URL/v1/config")
+          chain=$(echo "$config" | jq -r '.data.chainId')
+          usdg=$(echo "$config" | jq -r '.data.usdg.address')
+          decimals=$(echo "$config" | jq -r '.data.usdg.decimals')
+          if [ "$chain" != "$EXPECTED_CHAIN_ID" ] || [ "$usdg" != "$EXPECTED_USDG" ] || [ "$decimals" != "$EXPECTED_DECIMALS" ]; then
+            echo "::error::Live config is chain $chain, USDG $usdg ($decimals decimals); expected chain $EXPECTED_CHAIN_ID, USDG $EXPECTED_USDG ($EXPECTED_DECIMALS)."
+            exit 1
+          fi
+          ops=$(curl --fail --silent --show-error --max-time 10 "$BACKEND_URL/health/ops")
+          echo "Gas wallet: $(echo "$ops" | jq -r '.data.gasWallet') holds $(echo "$ops" | jq -r '.data.gasBalanceEth') ETH"
+          if [ "$(echo "$ops" | jq -r '.data.gasLow')" = "true" ]; then
+            echo "::warning::The gas wallet is below its alert threshold. Top it up; see docs/RUNBOOK.md."
+          fi
 
   release:
     name: Create backend release

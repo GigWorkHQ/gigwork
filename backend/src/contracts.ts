@@ -5,7 +5,7 @@ import { requireAuth } from "./auth.js";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
 import { ApiError, asyncRoute } from "./http.js";
-import { amountInput, fromRaw, party, resolveUser, toRaw, uuid, withTransaction, type Queryable } from "./common.js";
+import { amountInput, assertDailyCreateLimit, fromRaw, party, resolveUser, toRaw, uuid, withTransaction, type Queryable } from "./common.js";
 import { createEscrowAccount, createTransfer, kickEscrow, transfersFor, verifyDeposit } from "./ledger.js";
 
 // Ongoing contracts paid by Pay runs: the client reserves each pay period in escrow before it starts, and the
@@ -103,6 +103,7 @@ contractsRouter.post("/", asyncRoute(async (request, response) => {
   const id = await withTransaction(async (client) => {
     const worker = await resolveUser(client, input.worker);
     if (worker.id === request.auth!.userId) throw new ApiError(400, "cannot_hire_self", "You cannot offer a contract to yourself.");
+    await assertDailyCreateLimit(client, request.auth!.userId);
     const escrow = await createEscrowAccount(client, "contract");
     const created = await client.query<{ id: string }>(
       `INSERT INTO contracts (client_id,worker_id,escrow_id,title,description,rate_raw,period_days)

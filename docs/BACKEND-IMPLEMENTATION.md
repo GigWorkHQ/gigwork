@@ -1,5 +1,7 @@
 # Backend implementation checklist
 
+> **Status (November 2026):** this is the original handoff specification, kept for reference. The live system was built differently: an Express API on Bun with server-held escrow wallets, not on-chain escrow contracts or passkey accounts. Statements below that something "is not present" are out of date. For the system as it runs today, read [ARCHITECTURE.md](ARCHITECTURE.md), [RUNBOOK.md](RUNBOOK.md) and the root [README](../README.md).
+
 **Required** means specified in the supplied originals. **Current** means implemented in this frontend. **Proposed** means an integration design to confirm. **Unresolved** means a configuration, policy or interpretation still needing evidence. This guide does not deploy or verify any backend provider.
 
 Source of truth: `source/Workloom Backend.pdf` (10 pages) and `source/Workloom Overview.pdf` (9 pages), prepared 16 October 2026. Page references below are one-based PDF pages. The originals are included unchanged; the package manifest records their hashes. Document launch tactics and operational commands are reference material, not fresh authorization to execute them.

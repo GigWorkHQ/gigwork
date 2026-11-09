@@ -6,6 +6,7 @@ import { advanceJobs } from "./jobs.js";
 import { reconcileTransfers } from "./ledger.js";
 import { advanceReviewCases } from "./reviews.js";
 import { reconcileSettlements } from "./settlement.js";
+import { checkOpsAlerts, sweepNonces } from "./ops.js";
 
 // Time-driven steps: lease expiry, default approvals, expiry refunds, Pay runs, reviewer draws and payout
 // retries. Every step is idempotent; the advisory lock only keeps two runs from overlapping.
@@ -17,6 +18,8 @@ const steps: Array<[string, () => Promise<void>]> = [
   ["review cases", advanceReviewCases],
   ["job settlements", reconcileSettlements],
   ["escrow transfers", reconcileTransfers],
+  ["ops alerts", checkOpsAlerts],
+  ["nonce sweep", sweepNonces],
 ];
 
 export async function runKeeper() {

@@ -2,7 +2,7 @@ import React,{useState,useEffect,useRef} from 'react';
 import {RefreshCcw,Share2,Trash2,KeyRound,Gift,AtSign,Coins,Heart,TriangleAlert,ExternalLink} from 'lucide-react';
 import {Button} from './main.jsx';
 import {Panel,Empty} from './Dashboard.jsx';
-import {account,API_BASE,errorMessage} from './api.js';
+import {account,jobs,API_BASE,errorMessage} from './api.js';
 import {useConfig,useLoader,date,day,SignInPrompt,ErrorNotice,TextAction,StatusPill,TxLink,CopyButton} from './LiveShared.jsx';
 import {PAYOUT_STATUS} from './live.js';
 
@@ -40,7 +40,7 @@ export function LiveEarnings({live,notify,client}){
 export function LiveAccountSettings({live,notify}){
  const{session}=live;
  if(!session)return <Panel title="Account"><SignInPrompt live={live} text="Sign in with your wallet to set your pay handle, referrals, payout choice and API keys."/></Panel>;
- return <><HandlePanel live={live} notify={notify}/><PayoutPanel session={session} notify={notify}/><ReferralPanel session={session} notify={notify}/><ApiKeyPanel session={session} notify={notify}/></>;
+ return <><HandlePanel live={live} notify={notify}/><PayoutPanel session={session} notify={notify}/><ReferralPanel session={session} notify={notify}/><RecoverPanel session={session} notify={notify}/><ApiKeyPanel session={session} notify={notify}/></>;
 }
 
 function HandlePanel({live,notify}){
@@ -68,18 +68,29 @@ function PayoutPanel({session,notify}){
  </Panel>;
 }
 
+const recoverKind={job:'Job',batch:'Task batch',gig:'Gig',contract:'Contract'};
+// USDG that reached one of your escrows but was never recorded (sent late, sent twice, wrong amount, or from a smart
+// wallet) comes back here. Money that backs open work is never included.
+function RecoverPanel({session,notify}){
+ const list=useLoader(()=>account.recoverable(session.token),[]);const[busy,setBusy]=useState('');
+ async function recover(item){if(busy)return;setBusy(item.id);try{if(item.action==='cancel')await jobs.cancel(session.token,item.id);else await account.recover(session.token,item.escrowId);notify(`${item.amount} USDG is being returned to your wallet.`);list.reload()}catch(e){notify(errorMessage(e))}finally{setBusy('')}}
+ return <Panel title="Recover stuck USDG" subtitle="If USDG reached one of your escrows without being recorded, for example after the job expired, the batch closed or the contract ended, you can send it back to your wallet. Money backing open work is never touched." action={<button className="text-link" onClick={list.reload}><RefreshCcw size={14}/>Check again</button>}>
+  {list.error?<ErrorNotice message={list.error} onRetry={list.reload}/>:!list.data?<p className="live-loading">Checking your escrows…</p>:list.data.length?<div className="work-table">{list.data.map(i=><div className="work-row" key={i.escrowId||i.id}><div><b>{i.title}</b><span>{recoverKind[i.kind]} · {i.status.replace(/_/g,' ')}</span></div><strong>{i.amount}<small>USDG</small></strong><span className="mono">{i.escrowAddress.slice(0,6)}…{i.escrowAddress.slice(-4)}</span><Button className="small" disabled={Boolean(busy)} onClick={()=>recover(i)}>{busy===i.id?'Sending…':'Return to my wallet'}</Button></div>)}</div>:<Empty title="Nothing stuck" text="None of your escrows holds USDG beyond what it owes."/>}
+ </Panel>;
+}
+
 function ReferralPanel({session,notify}){
  const{config}=useConfig();const ref=useLoader(()=>account.referrals(session.token),[]);const r=ref.data;const claiming=useRef(false);
  const fromUrl=typeof location!=='undefined'?new URLSearchParams(location.search).get('ref'):null;
  async function claim(id){if(claiming.current)return;claiming.current=true;try{await account.claimBonus(session.token,id);notify('Bonus claimed. It is being sent to your wallet.');ref.reload()}catch(e){notify(errorMessage(e))}finally{claiming.current=false}}
- return <Panel title="Referrals" subtitle={r?`When someone you invite completes ${r.program.minApproved} approved pieces of work and has been here ${r.program.minDays} days, you each get ${r.program.bonus} USDG from the bonus budget.`:'Invite people you know.'} action={<button className="text-link" onClick={ref.reload}><RefreshCcw size={14}/>Refresh</button>}>
+ return <Panel title="Referrals" subtitle={r?`When someone you invite completes ${r.program.minApproved} approved pieces of work worth at least ${r.program.minItem} USDG each, for ${r.program.minClients} or more different clients (not you, them, or anyone either of you invited), and has been here ${r.program.minDays} days, you each get ${r.program.bonus} USDG once the team reviews it.`:'Invite people you know.'} action={<button className="text-link" onClick={ref.reload}><RefreshCcw size={14}/>Refresh</button>}>
   {ref.error?<ErrorNotice message={ref.error} onRetry={ref.reload}/>:!r?<p className="live-loading">Loading…</p>:<>
    <div className="handle-current"><Gift size={18}/><b className="mono">{r.code}</b><CopyButton text={`${location.origin}/app/account?ref=${r.code}`} label="Copy invite link"/><span>{r.invitees.length}/{r.program.maxInvites} invites used</span></div>
    {!r.referred&&<TextAction label="Were you invited? Enter their code (first 14 days only)" placeholder={fromUrl||'abcd2345'} button="Use code" onSubmit={async code=>{try{await account.redeem(session.token,code);notify('Referral code applied.');ref.reload()}catch(e){notify(errorMessage(e))}}}/>}
    {fromUrl&&!r.referred&&<p className="field-note">Your invite code is <b className="mono">{fromUrl}</b>.</p>}
-   {r.myProgress&&<p className="field-note">Your progress: {r.myProgress.approved}/{r.program.minApproved} approved pieces of work.</p>}
-   {r.invitees.length>0&&<ol className="live-events">{r.invitees.map((i,k)=><li key={k}><span className="mono">{day(i.referredAt)}</span>{i.who} · {i.approved}/{r.program.minApproved} approved</li>)}</ol>}
-   {r.bonuses.length>0&&<div className="work-table">{r.bonuses.map(b=><div className="work-row" key={b.id}><div><b>{b.role==='referrer'?'Referral bonus':'Welcome bonus'}</b><span>{day(b.createdAt)}</span></div><strong>{b.amount}<small>USDG</small></strong><span>{b.status==='claimable'?'Ready to claim':b.payoutStatus==='complete'?<TxLink hash={b.transactionHash} config={config}>Paid</TxLink>:'Sending'}</span>{b.status==='claimable'?<Button className="small" onClick={()=>claim(b.id)}>Claim</Button>:<span/>}</div>)}</div>}
+   {r.myProgress&&<p className="field-note">Your progress: {r.myProgress.approved}/{r.program.minApproved} qualifying pieces of work from {r.myProgress.clients}/{r.program.minClients} different clients.</p>}
+   {r.invitees.length>0&&<ol className="live-events">{r.invitees.map((i,k)=><li key={k}><span className="mono">{day(i.referredAt)}</span>{i.who} · {i.approved}/{r.program.minApproved} qualifying · {i.clients}/{r.program.minClients} clients</li>)}</ol>}
+   {r.bonuses.length>0&&<div className="work-table">{r.bonuses.map(b=><div className="work-row" key={b.id}><div><b>{b.role==='referrer'?'Referral bonus':'Welcome bonus'}</b><span>{day(b.createdAt)}</span></div><strong>{b.amount}<small>USDG</small></strong><span>{b.status==='pending_review'?'Waiting for team review':b.status==='rejected'?'Not approved':b.status==='claimable'?'Ready to claim':b.payoutStatus==='complete'?<TxLink hash={b.transactionHash} config={config}>Paid</TxLink>:b.payoutStatus==='failed'?'Payout failed · the team will retry':'Sending'}</span>{b.status==='claimable'?<Button className="small" onClick={()=>claim(b.id)}>Claim</Button>:<span/>}</div>)}</div>}
    <p className="field-note">Bonus budget available: {r.program.budgetAvailable??'unknown'} USDG. Bonuses are paid from a separate budget, never from client escrow. If the budget is empty, your bonus stays claimable.</p>
   </>}
  </Panel>;

@@ -5,7 +5,8 @@ import { formatUnits } from "viem";
 import { z } from "zod";
 import { requireAuth, requireTeam } from "./auth.js";
 import { config, teamWallets } from "./config.js";
-import { jobAssetSchema, parseUsdgAmount, usdgAmountSchema } from "./currency.js";
+import { jobAssetSchema, usdgAmountSchema } from "./currency.js";
+import { assertDailyCreateLimit, logTeamAction, toRaw } from "./common.js";
 import { decryptPayload, encryptPayload, payloadDigest } from "./crypto.js";
 import { db } from "./db/index.js";
 import { assertCanDispute, assertCanRequestRevision, assertCanSubmit, assertClaimable, assertSettlementAllowed } from "./lifecycle.js";
@@ -111,7 +112,7 @@ jobsRouter.post(
   requireAuth,
   asyncRoute(async (request, response) => {
     const input = createInput.parse(request.body);
-    const amount = parseUsdgAmount(input.amount, config.USDG_DECIMALS);
+    const amount = toRaw(input.amount);
     const id = randomUUID();
     const escrow = makeEscrowWallet(id);
     const deadlineAt = request.body?.deadlineAt ? new Date(request.body.deadlineAt) : null;
@@ -121,6 +122,7 @@ jobsRouter.post(
     const client = await db.connect();
     try {
       await client.query("BEGIN");
+      await assertDailyCreateLimit(client, request.auth!.userId);
       await client.query(
         `INSERT INTO jobs (id,client_id,title,description,acceptance_criteria,asset,amount_raw,token_address,deadline_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
@@ -570,6 +572,7 @@ teamJobsRouter.post("/disputes/:jobId/resolve", asyncRoute(async (request, respo
       [id, input.outcome === "pay_doer" ? "pay_worker" : "refund_client", input.outcome === "pay_doer" ? 10_000 : 0,
         encryptPayload(input.note, `review-note-job:${id}`), request.auth!.userId],
     );
+    await logTeamAction(client, request.auth!.userId, "job_dispute.team_resolve", id, { outcome: input.outcome });
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -597,7 +600,8 @@ jobsRouter.post(
        FROM jobs j JOIN job_escrow_wallets ew ON ew.job_id=j.id WHERE j.id=$1`, [id])).rows[0];
     if (!job) throw new ApiError(404, "job_not_found", "This job does not exist.");
     if (job.client_id !== request.auth!.userId) throw new ApiError(403, "client_only", "Only the client can cancel this job.");
-    if (["awaiting_funding", "cancelled"].includes(job.status) && !job.settled) {
+    // Expired jobs are included: USDG that landed after the job expired unfunded would otherwise be stuck (audit M-1).
+    if (["awaiting_funding", "cancelled", "expired"].includes(job.status) && !job.settled) {
       const deposit = await usdgBalance(job.escrow_address);
       if (deposit > 0n) {
         const result = await recoverDeposit(id, request.auth!.userId, deposit);
@@ -605,7 +609,7 @@ jobsRouter.post(
         kickSettlement(id);
         return;
       }
-      if (job.status === "cancelled") throw new ApiError(409, "nothing_to_refund", "This job's escrow holds no USDG to refund.");
+      if (job.status !== "awaiting_funding") throw new ApiError(409, "nothing_to_refund", "This job's escrow holds no USDG to refund.");
     }
     const unfunded = await db.query(
       `UPDATE jobs SET status='cancelled',updated_at=now() WHERE id=$1 AND client_id=$2 AND status='awaiting_funding' RETURNING id`,
@@ -628,7 +632,7 @@ async function recoverDeposit(jobId: string, actorId: string, deposit: bigint) {
     await client.query("BEGIN");
     const locked = await client.query(
       `UPDATE jobs SET status='ready',funded_at=COALESCE(funded_at,now()),updated_at=now()
-       WHERE id=$1 AND status IN ('awaiting_funding','cancelled') RETURNING id`, [jobId]);
+       WHERE id=$1 AND status IN ('awaiting_funding','cancelled','expired') RETURNING id`, [jobId]);
     if (!locked.rowCount) throw new ApiError(409, "job_not_cancellable", "This job changed while cancelling. Refresh and try again.");
     await appendEvent(client, jobId, actorId, "job.deposit_recovered", { amountRaw: deposit.toString() });
     const result = await createSettlement(jobId, actorId, "client_cancel", "refund_client", client);

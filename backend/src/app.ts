@@ -14,11 +14,16 @@ import { batchesRouter, tasksRouter } from "./batches.js";
 import { contractsRouter } from "./contracts.js";
 import { gigsRouter } from "./gigs.js";
 import { reviewsRouter, teamReviewsRouter } from "./reviews.js";
+import { rateLimit } from "./ratelimit.js";
+import { recoveryRouter } from "./recovery.js";
+import { opsStatus } from "./ops.js";
 
 const app = express();
 app.set("trust proxy", config.TRUST_PROXY);
 app.use(corsMiddleware(allowedOrigins));
 app.use(express.json({ limit: "256kb" }));
+app.use("/v1/auth", rateLimit({ name: "sign-in", perMinute: config.RATE_LIMIT_AUTH_PER_MINUTE }));
+app.use("/v1", rateLimit({ name: "write", perMinute: config.RATE_LIMIT_WRITE_PER_MINUTE, methods: ["POST", "PUT", "PATCH", "DELETE"] }));
 
 app.get("/health", (_request, response) =>
   response.json({ service: "gigwork-api", status: "ok", commit: process.env.GIT_SHA ?? "unknown" }),
@@ -26,6 +31,10 @@ app.get("/health", (_request, response) =>
 app.get("/health/ready", asyncRoute(async (_request, response) => {
   await db.query("SELECT 1");
   response.json({ status: "ready" });
+}));
+// Public operating status: the gas wallet balance against its alert threshold, and payouts waiting or failed.
+app.get("/health/ops", asyncRoute(async (_request, response) => {
+  response.json({ data: await opsStatus() });
 }));
 
 app.get("/v1/config", (_request, response) =>
@@ -78,6 +87,8 @@ cronRouter.post("/settle", asyncRoute(async (request, response) => {
 }));
 
 app.use("/v1/auth", authRouter);
+// Mounted before the /v1 routers that require a session, which would otherwise answer the cron bearer with 401.
+app.use("/v1/cron", cronRouter);
 app.use("/v1/jobs", jobsRouter);
 app.use("/v1/team", teamJobsRouter);
 app.use("/v1/team", teamReviewsRouter);
@@ -88,8 +99,8 @@ app.use("/v1/gigs", gigsRouter);
 app.use("/v1/contracts", contractsRouter);
 app.use("/v1/reviews", reviewsRouter);
 app.use("/v1/public", publicRouter);
+app.use("/v1", recoveryRouter);
 app.use("/v1", accountRouter);
-app.use("/v1/cron", cronRouter);
 app.use((_request, _response, next) => next(new ApiError(404, "not_found", "This endpoint does not exist.")));
 app.use(errorHandler);
 

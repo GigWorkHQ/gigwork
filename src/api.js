@@ -77,6 +77,8 @@ export const account={
  referrals:token=>get('/v1/referrals',token),
  redeem:(token,code)=>post('/v1/referrals/redeem',token,{code}),
  claimBonus:(token,id)=>post(`/v1/referrals/bonuses/${id}/claim`,token),
+ recoverable:token=>get('/v1/recoverable',token),
+ recover:(token,escrowId)=>post(`/v1/escrows/${escrowId}/recover`,token),
  tipQuote:(token,subjectKind,subjectId)=>get(`/v1/tips/quote${q({subjectKind,subjectId})}`,token),
  tip:(token,body)=>post('/v1/tips',token,body),
 };
@@ -144,4 +146,9 @@ Object.assign(team,{
  addReviewer:(token,user)=>post('/v1/team/reviewers',token,{user}),
  deactivateReviewer:(token,userId)=>post(`/v1/team/reviewers/${userId}/deactivate`,token),
  bonusVault:token=>get('/v1/team/bonus-vault',token),
+ referralBonuses:token=>get('/v1/team/referral-bonuses',token),
+ reviewBonus:(token,id,decision)=>post(`/v1/team/referral-bonuses/${id}/${decision}`,token),
+ failedPayouts:token=>get('/v1/team/payouts/failed',token),
+ retryPayout:(token,id)=>post(`/v1/team/payouts/${id}/retry`,token),
+ actions:token=>get('/v1/team/actions',token),
 });

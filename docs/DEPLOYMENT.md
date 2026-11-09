@@ -1,5 +1,7 @@
 # Deployment and transfer
 
+> **Status (November 2026):** this is the original handoff specification, kept for reference. The live system was built differently: an Express API on Bun with server-held escrow wallets, not on-chain escrow contracts or passkey accounts. Statements below that something "is not present" are out of date. For the system as it runs today, read [ARCHITECTURE.md](ARCHITECTURE.md), [RUNBOOK.md](RUNBOOK.md) and the root [README](../README.md).
+
 The ZIP contains the current website source and build, not the owner's hosting/account access. The owner's private URL can be used as a reference when access is separately granted. No sharing settings were changed for this delivery.
 
 ## Local and frontend hosting

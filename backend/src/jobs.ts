@@ -15,6 +15,7 @@ import { makeEscrowWallet, verifyJobFunding, type FundingTerms, type JobAsset } 
 import { ApiError, asyncRoute } from "./http.js";
 import { processSettlement } from "./settlement.js";
 import { usdgBalance } from "./ledger.js";
+import { forgetRecoverable } from "./recovery.js";
 
 export const jobsRouter = Router();
 const uuid = z.string().uuid();
@@ -605,6 +606,7 @@ jobsRouter.post(
       const deposit = await usdgBalance(job.escrow_address);
       if (deposit > 0n) {
         const result = await recoverDeposit(id, request.auth!.userId, deposit);
+        forgetRecoverable(request.auth!.userId);
         response.status(202).json({ data: result });
         kickSettlement(id);
         return;

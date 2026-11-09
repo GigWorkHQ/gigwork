@@ -30,7 +30,7 @@ Job payouts are in the same queue (kind `job pay` or `job refund`). A job payout
 
 ## A client says their USDG is stuck
 
-1. Ask them to open **Account → Recover stuck USDG**. It lists every escrow of theirs that holds money it doesn't owe anyone, and returns it with one click.
+1. Ask them to open **Account → Recover stuck USDG**. It lists every escrow of theirs that holds money it doesn't owe anyone, including USDG sent to a job beyond its amount once the job has paid out, and returns it with one click. The list is cached for 30 seconds.
 2. If nothing is listed, the money is backing open work, for example a live batch or a reserved pay period. That is returned through the normal flow: close the batch, cancel the milestone, or let the contract period end.
 
 ## A deploy went wrong

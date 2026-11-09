@@ -79,6 +79,7 @@ export const account={
  claimBonus:(token,id)=>post(`/v1/referrals/bonuses/${id}/claim`,token),
  recoverable:token=>get('/v1/recoverable',token),
  recover:(token,escrowId)=>post(`/v1/escrows/${escrowId}/recover`,token),
+ recoverJob:(token,jobId)=>post(`/v1/escrows/job/${jobId}/recover`,token),
  tipQuote:(token,subjectKind,subjectId)=>get(`/v1/tips/quote${q({subjectKind,subjectId})}`,token),
  tip:(token,body)=>post('/v1/tips',token,body),
 };

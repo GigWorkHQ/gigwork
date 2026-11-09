@@ -43,6 +43,8 @@ const env = z
     // Requests per minute per IP: sign-in routes, and every write.
     RATE_LIMIT_AUTH_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(20),
     RATE_LIMIT_WRITE_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(120),
+    // GET /v1/recoverable reads many chain balances per call, so it has its own, tighter limit.
+    RATE_LIMIT_RECOVERY_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(6),
     // The keeper posts an alert here (Slack/Discord-compatible JSON) when the gas wallet runs low.
     GAS_ALERT_WEBHOOK_URL: z.string().url().optional(),
     GAS_ALERT_MIN_ETH: z.string().regex(/^\d+(\.\d+)?$/).default("0.0005"),

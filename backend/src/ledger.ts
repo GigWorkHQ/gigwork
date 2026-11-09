@@ -12,7 +12,7 @@ import { ETH_TRANSFER_GAS, GAS_WALLET_LOCK, RevertedError, StaleTxError, USDG_TR
 // Multi-payout escrow accounts. Each batch, gig and contract gets its own key-encrypted wallet that
 // receives exact client deposits and pays workers through persisted, replay-safe ERC-20 transfers.
 
-export type EscrowKind = "batch" | "gig" | "contract" | "bonus_vault";
+export type EscrowKind = "batch" | "gig" | "contract" | "bonus_vault" | "job";
 export type TransferKind =
   | "assignment_pay" | "batch_refund" | "milestone_pay" | "milestone_refund"
   | "pay_period" | "pay_period_refund" | "referral_bonus" | "surplus_refund";
@@ -30,6 +30,23 @@ export async function createEscrowAccount(client: Queryable, kind: EscrowKind) {
     encryptSecret(privateKey, escrowContext(id)),
   ]);
   return { id, address };
+}
+
+// Register a settled job's wallet as an escrow account (once), so leftover USDG goes through recoverSurplus. Only
+// called after the job's settlement is complete: the settlement no longer signs from this wallet, and nothing is owed
+// from it, so its whole balance is surplus. The key is re-encrypted under the escrow context; the wallet is the same.
+export async function jobEscrowAccount(client: Queryable, jobId: string) {
+  const existing = await client.query<{ id: string }>("SELECT id FROM escrow_accounts WHERE job_id=$1", [jobId]);
+  if (existing.rowCount) return existing.rows[0].id;
+  const wallet = await client.query<{ address: string; encrypted_private_key: string }>(
+    "SELECT address,encrypted_private_key FROM job_escrow_wallets WHERE job_id=$1", [jobId]);
+  if (!wallet.rowCount) throw new ApiError(404, "job_not_found", "This job does not exist.");
+  const id = randomUUID();
+  const privateKey = decryptSecret(wallet.rows[0].encrypted_private_key, `job-escrow:${jobId}`);
+  await client.query("INSERT INTO escrow_accounts (id,kind,address,encrypted_private_key,job_id) VALUES ($1,'job',$2,$3,$4)", [
+    id, wallet.rows[0].address, encryptSecret(privateKey, escrowContext(id)), jobId,
+  ]);
+  return id;
 }
 
 export async function bonusVault() {

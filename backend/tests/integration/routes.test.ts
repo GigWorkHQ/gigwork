@@ -290,6 +290,71 @@ describe.skipIf(!enabled)("routes against real Postgres", () => {
     });
   });
 
+  // ---------- job surplus after settlement (M-3) and the recovery list (L-7) ----------
+
+  describe("job surplus", () => {
+    async function settledJob(client: User, amount = "1") {
+      const job = await createJob(client, amount);
+      const hash = sendUsdg(client.wallet, job.escrowAddress, usdg(Number(amount)));
+      expect((await call("POST", `/v1/jobs/${job.id}/fund`, client.token, { transactionHash: hash })).status).toBe(200);
+      return job;
+    }
+    async function finishPayout(jobId: string, recipient: string, escrowAddress: string, amountRaw: bigint) {
+      await db.query("UPDATE jobs SET status='completed',settled_at=now() WHERE id=$1", [jobId]);
+      await db.query(
+        "INSERT INTO job_settlements (job_id,outcome,recipient,amount_raw,status,phase) VALUES ($1,'pay_doer',$2,$3,'complete','complete')",
+        [jobId, recipient, amountRaw.toString()]);
+      chain.balances.set(escrowAddress.toLowerCase(), (chain.balances.get(escrowAddress.toLowerCase()) ?? 0n) - amountRaw);
+    }
+
+    test("USDG sent to a job beyond its amount is returned once the payout finishes, exactly once", async () => {
+      const client = await newUser();
+      const worker = await newUser();
+      const job = await settledJob(client);
+      sendUsdg(client.wallet, job.escrowAddress, usdg(1)); // a double send
+      // Not while the job is open: the extra waits until the payout is done.
+      expect((await call("POST", `/v1/escrows/job/${job.id}/recover`, client.token)).body.error.code).toBe("job_not_settled");
+
+      await finishPayout(job.id, worker.wallet, job.escrowAddress, usdg(1));
+      const listed = (await call("GET", "/v1/recoverable", client.token)).body.data.find((i: any) => i.id === job.id);
+      expect(listed).toMatchObject({ action: "recover_job", amount: "1" });
+      expect((await call("POST", `/v1/escrows/job/${job.id}/recover`, (await newUser()).token)).status).toBe(404);
+
+      const recovered = await call("POST", `/v1/escrows/job/${job.id}/recover`, client.token);
+      expect(recovered.status).toBe(202);
+      expect(recovered.body.data.amount).toBe("1");
+      const escrow = (await db.query("SELECT id,kind,address FROM escrow_accounts WHERE job_id=$1", [job.id])).rows[0];
+      expect(escrow).toMatchObject({ kind: "job", address: job.escrowAddress.toLowerCase() });
+      const transfers = (await db.query("SELECT kind,recipient,amount_raw::text FROM escrow_transfers WHERE escrow_id=$1", [escrow.id])).rows;
+      expect(transfers).toEqual([{ kind: "surplus_refund", recipient: client.wallet, amount_raw: usdg(1).toString() }]);
+      // The refund is on its way: nothing more to recover, and the list (cleared after the recovery) agrees.
+      expect((await call("POST", `/v1/escrows/job/${job.id}/recover`, client.token)).body.error.code).toBe("nothing_to_recover");
+      expect((await call("GET", "/v1/recoverable", client.token)).body.data.find((i: any) => i.id === job.id)).toBeUndefined();
+    });
+
+    test("a settled job with nothing extra has nothing to recover", async () => {
+      const client = await newUser();
+      const job = await settledJob(client);
+      await finishPayout(job.id, (await newUser()).wallet, job.escrowAddress, usdg(1));
+      expect((await call("GET", "/v1/recoverable", client.token)).body.data.find((i: any) => i.id === job.id)).toBeUndefined();
+      expect((await call("POST", `/v1/escrows/job/${job.id}/recover`, client.token)).body.error.code).toBe("nothing_to_recover");
+    });
+
+    test("the recoverable list is cached briefly, so repeat calls don't re-read the chain", async () => {
+      const client = await newUser();
+      const batch = await createBatch(client);
+      await call("POST", `/v1/batches/${batch.id}/close`, client.token);
+      const { publicClient } = await import("../../src/escrow.js");
+      const first = await call("GET", "/v1/recoverable", client.token);
+      expect(first.body.data).toEqual([]);
+      sendUsdg(client.wallet, batch.escrowAddress, usdg(0.5));
+      const reads = (publicClient.readContract as any).mock.calls.length;
+      const second = await call("GET", "/v1/recoverable", client.token);
+      expect(second.body.data).toEqual([]); // served from the 30 s cache
+      expect((publicClient.readContract as any).mock.calls.length).toBe(reads);
+    });
+  });
+
   // ---------- failed payout retries (L-5) ----------
 
   test("a failed payout goes back to pending through a logged team retry", async () => {

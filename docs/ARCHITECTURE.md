@@ -23,7 +23,7 @@ GigWork API (Express 5 on Bun, Render, one instance)
 1. **Fund.** The client sends the exact USDG amount from its signed-in wallet to the item's escrow address, then posts the transaction hash. `verifyJobFunding` checks the chain, the sender, the token contract, the exact amount, the recipient and the confirmations, then records the deposit. Each transaction hash can fund only one thing.
 2. **Credit.** Approval, default approval, a Pay run or a dispute ruling creates an `escrow_transfers` row (batches, gigs, contracts) or a `job_settlements` row (jobs). Unique keys make each credit happen once.
 3. **Pay.** The payout worker leases the escrow, tops it up with gas, signs the ERC-20 transfer, and persists the signed transaction before broadcasting it. A restart re-sends the same bytes; it never re-signs a payout that might already be mined.
-4. **Recover.** A client can send back any USDG its escrow holds above what it owes (`GET /v1/recoverable`, `POST /v1/escrows/:id/recover`, or `POST /v1/jobs/:id/cancel` for jobs).
+4. **Recover.** A client can send back any USDG its escrow holds above what it owes (`GET /v1/recoverable`; `POST /v1/escrows/:id/recover`; for jobs, `POST /v1/jobs/:id/cancel` before funding or after expiry, and `POST /v1/escrows/job/:jobId/recover` for anything sent beyond the amount once the payout is done).
 
 ## Invariants
 
@@ -90,6 +90,8 @@ Fixes made in response:
 | Ops and docs | README, SECURITY.md, LICENSE, `.env.example`, this file, RUNBOOK.md, team action log, CI hardening |
 | Re-audit R-1: fresh wallets could pose as clients | Clients must be established (age, plus independent payments to other workers); paying the referee's partners back links them; team review shows per-client evidence |
 | Re-audit R-2: a reverted job payout was re-broadcast forever | Job settlements now stop in a failed state, appear in the failed-payout queue and `/health/ops`, and resume through a logged team retry |
+| Self-audit M-3: USDG sent to a job beyond its amount was stuck after payout | Once a job's payout completes, its wallet can be registered as an escrow account, and the extra is returned through the same surplus recovery (`POST /v1/escrows/job/:jobId/recover`, listed in Recover stuck USDG) |
+| Self-audit L-7: `/v1/recoverable` fanned out unthrottled chain reads | Its own per-IP limit (6/min, `RATE_LIMIT_RECOVERY_PER_MINUTE`) and a 30 s per-user cache, cleared after any recovery or job refund |
 | Found while fixing | `/v1/cron/settle` was unreachable because the account router's auth answered first; it is now mounted first |
 
 ## Roadmap

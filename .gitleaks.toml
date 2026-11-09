@@ -8,4 +8,6 @@ paths = [
   '''^\.github/workflows/backend\.yml$''',
   '''^backend/tests/''',
   '''^backend/\.env\.example$''',
+  # Generated frontend build. Minified wallet SDKs embed their vendors' public analytics keys.
+  '''^dist/''',
 ]

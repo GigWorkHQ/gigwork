@@ -12,7 +12,6 @@ const isSha256 = (value: unknown): value is string => typeof value === "string" 
 
 const REPOSITORY = "gigworkhq/gigwork";
 const CACHE_MS = 5 * 60_000;
-const DOWNLOAD_PREFIX = /^https:\/\/github\.com\/gigworkhq\/gigwork\/releases\/download\//;
 
 // Each channel is its own Android app (its own application ID, signing key and release); neither may be handed the
 // other's file, or the phone would install a second app instead of updating the first.
@@ -44,36 +43,29 @@ export function parseManifest(input: unknown) {
   };
 }
 
-type Asset = { name?: string; browser_download_url?: string; size?: number };
 const cache = new Map<Channel, { url: string; manifest: ReturnType<typeof parseManifest> | null; expiresAt: number }>();
 export const resetReleaseCache = () => cache.clear();
+
+// Read from GitHub's direct release-download links, not api.github.com: the API's anonymous limit (60 an hour per IP)
+// is shared by everything on Render's outbound IPs and was already spent, so every lookup failed.
+const downloadUrl = (channel: Channel, name: string) => `https://github.com/${REPOSITORY}/releases/download/${channels[channel].releaseTag}/${name}`;
 
 async function release(channel: Channel) {
   const config = channels[channel];
   const previous = cache.get(channel);
   if (previous && previous.expiresAt > Date.now()) return previous;
-  const response = await fetch(`https://api.github.com/repos/${REPOSITORY}/releases/tags/${config.releaseTag}`, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "GigWork-download" },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw new Error(`Android ${channel} is not available yet.`);
-  const found = (await response.json()) as { assets?: Asset[] };
-  const ours = (asset?: Asset) => asset?.browser_download_url && DOWNLOAD_PREFIX.test(asset.browser_download_url)
-    && asset.browser_download_url.includes(`/download/${config.releaseTag}/`) ? asset.browser_download_url : null;
-  const apk = found.assets?.find((asset) => asset.name === config.assetName);
-  const url = ours(apk);
-  if (!url) throw new Error(`Android ${channel} is not available yet.`);
+  const url = downloadUrl(channel, config.assetName);
+  const head = await fetch(url, { method: "HEAD", redirect: "follow", headers: { "User-Agent": "GigWork-download" }, signal: AbortSignal.timeout(10_000) });
+  if (!head.ok) throw new Error(`Android ${channel} is not available yet.`);
+  const size = Number(head.headers.get("content-length"));
   let manifest: ReturnType<typeof parseManifest> | null = null;
-  const manifestUrl = ours(found.assets?.find((asset) => asset.name === config.manifestName));
-  if (manifestUrl) {
-    try {
-      const document = await fetch(manifestUrl, { headers: { "User-Agent": "GigWork-download" }, signal: AbortSignal.timeout(10_000) });
-      if (document.ok) {
-        const parsed = parseManifest({ ...(await document.json()), downloadUrl: url, sizeBytes: apk?.size });
-        manifest = parsed.channel === channel ? parsed : null;
-      }
-    } catch { manifest = null; }
-  }
+  try {
+    const document = await fetch(downloadUrl(channel, config.manifestName), { redirect: "follow", headers: { "User-Agent": "GigWork-download" }, signal: AbortSignal.timeout(10_000) });
+    if (document.ok) {
+      const parsed = parseManifest({ ...(await document.json()), downloadUrl: url, sizeBytes: Number.isSafeInteger(size) && size > 0 ? size : undefined });
+      manifest = parsed.channel === channel ? parsed : null;
+    }
+  } catch { manifest = null; }
   const result = { url, manifest, expiresAt: Date.now() + CACHE_MS };
   cache.set(channel, result);
   return result;

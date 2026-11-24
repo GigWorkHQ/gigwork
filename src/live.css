@@ -1,5 +1,5 @@
 /* Live (backend-connected) job flow. Builds on dashboard.css + dashboard-refined.css primitives. */
-.wallet-chip{display:inline-flex;align-items:center;gap:7px;padding:4px 4px 4px 11px;border:1px solid var(--line);border-radius:20px;background:white;font-size:12px}
+.wallet-chip{display:inline-flex;align-items:center;gap:7px;padding:4px 4px 4px 11px;border:1px solid var(--line);border-radius:20px;background:white;font-size:13px}
 .wallet-chip b{font-family:var(--mono);font-weight:500}
 .wallet-chip .icon-btn{width:28px;height:28px}
 .wallet-dot{width:7px;height:7px;border-radius:50%;background:#2fbf4a;box-shadow:0 0 0 3px var(--green)}
@@ -9,43 +9,43 @@
 .live-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
 .live-toolbar .market-tabs{margin:0}
 .live-toolbar-actions{display:flex;align-items:center;gap:14px}
-.tab-count{display:inline-grid;place-items:center;min-width:18px;height:18px;margin-left:7px;padding:0 5px;border-radius:9px;background:var(--navy);color:white;font-size:10px}
+.tab-count{display:inline-grid;place-items:center;min-width:18px;height:18px;margin-left:7px;padding:0 5px;border-radius:9px;background:var(--navy);color:white;font-size:11px}
 .live-more{display:flex;justify-content:center;padding:18px}
-.live-loading{padding:28px 22px;color:var(--muted);font-size:14px}
+.live-loading{padding:28px 22px;color:var(--muted);font-size:15.5px}
 .live-signin{flex-wrap:wrap}
 .live-signin p{flex:1 1 220px}
 .live-description{white-space:pre-wrap}
 .mono{font-family:var(--mono)}
 .fund-panel,.live-review,.live-text-action,.live-history{display:grid;gap:13px;margin-top:20px;padding:20px;border:1px solid var(--line);border-radius:14px;background:#fbfbfd}
 .live-review .live-text-action{margin-top:4px;padding:0;border:0;background:none}
-.fund-panel h4,.live-review h4,.live-text-action h4,.live-history h4{display:flex;align-items:center;gap:8px;margin:0;font-size:15px}
+.fund-panel h4,.live-review h4,.live-text-action h4,.live-history h4{display:flex;align-items:center;gap:8px;margin:0;font-size:16.5px}
 .fund-panel>.btn,.live-text-action>.btn,.live-review>.btn{justify-self:start}
 .fund-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .fund-facts>div{display:grid;gap:3px;padding:11px 13px;border-radius:10px;background:white;border:1px solid var(--line);min-width:0}
 .fund-facts>div:nth-child(2){grid-template-columns:1fr auto;align-items:end}
 .fund-facts>div:nth-child(2) span{grid-column:1/-1}
-.fund-facts span{font-size:11px;color:var(--muted)}
-.fund-facts b{font-size:14px;overflow:hidden;text-overflow:ellipsis}
-.fund-manual summary,.live-dispute summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted)}
+.fund-facts span{font-size:12px;color:var(--muted)}
+.fund-facts b{font-size:15.5px;overflow:hidden;text-overflow:ellipsis}
+.fund-manual summary,.live-dispute summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:14.5px;color:var(--muted)}
 .fund-manual .amount-field{margin-top:10px}
-.fund-manual input{font-size:12px}
+.fund-manual input{font-size:13px}
 .live-dispute{margin-top:22px}
 .live-dispute .live-text-action{margin-top:12px}
 .live-timeline{display:grid;gap:12px;margin:0;padding:0;list-style:none}
 .live-timeline>li{display:grid;gap:7px;padding:13px 15px;border-left:3px solid #8fd0ff;border-radius:6px;background:white}
 .live-timeline>li.revision{border-left-color:#f2d64b}
-.live-timeline>li>span{font-size:10px;color:var(--muted);letter-spacing:.04em}
+.live-timeline>li>span{font-size:11px;color:var(--muted);letter-spacing:.04em}
 .live-timeline p,.live-timeline b{margin:0;white-space:pre-wrap}
-.live-timeline ul{margin:0;padding-left:18px;font-size:13px}
+.live-timeline ul{margin:0;padding-left:18px;font-size:14.5px}
 .live-timeline a{display:inline-flex;align-items:center;gap:4px;word-break:break-all}
-.live-deliverable{margin:0;max-height:260px;overflow:auto;padding:11px;border-radius:8px;background:#f5f6f9;font:12px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word}
+.live-deliverable{margin:0;max-height:260px;overflow:auto;padding:11px;border-radius:8px;background:#f5f6f9;font:13px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word}
 .live-outcome{display:grid;gap:8px;margin:0;padding:0;border:0}
-.live-outcome legend{margin-bottom:8px;font-size:13px;font-weight:600}
+.live-outcome legend{margin-bottom:8px;font-size:14.5px;font-weight:600}
 .live-outcome label{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:white;cursor:pointer}
 .live-outcome label.selected{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy)}
-.live-events{margin:10px 0 0;padding:0;list-style:none;font-size:13px}
+.live-events{margin:10px 0 0;padding:0;list-style:none;font-size:14.5px}
 .live-events li{display:flex;gap:12px;padding:5px 0;border-top:1px solid var(--line)}
-.live-events span{min-width:150px;color:var(--muted);font-size:11px}
+.live-events span{min-width:150px;color:var(--muted);font-size:12px}
 .detail-facts a{text-decoration:underline}
 @media (max-width:760px){
  .fund-facts{grid-template-columns:1fr}
@@ -56,42 +56,42 @@
 .type-dot{display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--green);vertical-align:1px}
 .type-dot.blue{background:#8fd0ff}.type-dot.pink{background:#ffb3d9}.type-dot.yellow{background:#f2d64b}.type-dot.purple{background:#c6b6ff}
 .live-row-detail{display:grid;gap:10px;padding:0 16px 14px;border-bottom:1px solid var(--line)}
-.live-row-detail p{margin:0;font-size:13px}
+.live-row-detail p{margin:0;font-size:14.5px}
 .row-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .task-prompt{display:grid;gap:6px;margin:16px 0;padding:16px;border-radius:12px;background:#f5f6f9}
-.task-prompt span{font-size:11px;color:var(--muted)}
-.task-prompt p{margin:0;font-size:15px}
+.task-prompt span{font-size:12px;color:var(--muted)}
+.task-prompt p{margin:0;font-size:16.5px}
 .metric-grid.live-metrics{display:grid;gap:10px;margin:0 0 18px}
 .live-metrics>div{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:white}
-.live-metrics span{font-size:12px;color:var(--muted)}
-.live-metrics b{display:flex;align-items:center;gap:6px;font-size:18px}
+.live-metrics span{font-size:13px;color:var(--muted)}
+.live-metrics b{display:flex;align-items:center;gap:6px;font-size:20px}
 .live-history h4{justify-content:space-between}
 .milestone-list{display:grid;gap:10px;margin-top:18px}
 .milestone-card{border:1px solid var(--line);border-radius:14px;background:white;overflow:hidden}
 .milestone-card.open{border-color:var(--navy)}
 .milestone-head{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:12px;width:100%;padding:14px 16px;border:0;background:none;text-align:left;font:inherit;cursor:pointer}
-.milestone-head span.mono{font-size:12px;color:var(--muted)}
-.milestone-head strong{font-size:14px;white-space:nowrap}
+.milestone-head span.mono{font-size:13px;color:var(--muted)}
+.milestone-head strong{font-size:15.5px;white-space:nowrap}
 .milestone-body{display:grid;gap:12px;padding:0 16px 16px}
 .milestone-body .fund-panel,.milestone-body .live-text-action{margin-top:0}
 .milestone-body>.btn{justify-self:start}
 .milestone-body p.field-note{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0}
 .milestone-editor{display:grid;gap:8px;margin:18px 0}
-.milestone-editor h4{margin:0;font-size:14px}
+.milestone-editor h4{margin:0;font-size:15.5px}
 .milestone-edit-row{display:grid;grid-template-columns:24px 1fr 110px 80px 34px;gap:8px;align-items:center}
-.milestone-edit-row input{min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px}
-.milestone-edit-row .mono{font-size:12px;color:var(--muted)}
+.milestone-edit-row input{min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:15.5px}
+.milestone-edit-row .mono{font-size:13px;color:var(--muted)}
 .milestone-editor .text-link{justify-self:start}
 .share-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0 8px}
-.share-bar input{flex:1 1 220px;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px}
+.share-bar input{flex:1 1 220px;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:15.5px}
 .history-row{grid-template-columns:24px minmax(0,1.6fr) .6fr .6fr;cursor:pointer}
 .history-row input{width:17px;height:17px;accent-color:var(--navy)}
 .handle-current{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#fbfbfd}
-.handle-current b{font-size:16px}
-.handle-current span{color:var(--muted);font-size:12px;word-break:break-all}
-.check-row{display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.handle-current b{font-size:17.5px}
+.handle-current span{color:var(--muted);font-size:13px;word-break:break-all}
+.check-row{display:flex;gap:10px;align-items:flex-start;font-size:14.5px}
 .check-row input{margin-top:2px;accent-color:var(--navy)}
-.key-reveal{display:block;margin-top:6px;word-break:break-all;font-size:12px}
+.key-reveal{display:block;margin-top:6px;word-break:break-all;font-size:13px}
 .split-input{width:64px;margin:0 6px;padding:4px 8px;border:1px solid var(--line);border-radius:8px;font:inherit}
 .field-note svg{vertical-align:-2px}
 .share-page{min-height:100vh;background:var(--paper,#f7f7f2)}
@@ -109,7 +109,7 @@
  .share-header{padding:16px}
 }
 .sidebar nav[aria-label="Preview navigation"]{margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}
-.wallet-reconnect{font-size:12px;white-space:nowrap}
+.wallet-reconnect{font-size:13px;white-space:nowrap}
 [data-rk]{font-family:inherit}
 .pair-code{display:grid;justify-items:center;gap:8px;margin-bottom:12px;padding:22px 16px;border:1px solid var(--line);border-radius:12px;background:var(--green);text-align:center}
 .pair-code b.mono{font-size:clamp(28px,7vw,40px);letter-spacing:.12em;color:var(--navy)}

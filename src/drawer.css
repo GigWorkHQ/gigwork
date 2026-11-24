@@ -1,0 +1,25 @@
+/* The dashboard sidebar is an open/close menu at every width (it used to be a fixed panel on desktop and a rail on
+   tablets). Loaded after dashboard.css and dashboard-refined.css; selectors are scoped under .app-shell so they win
+   over the width-specific rail rules without !important. */
+.app-shell{--sidebar:0px}
+.app-shell .app-body{margin-left:0}
+.app-shell .app-topbar{margin-left:0}
+.app-shell .app-topbar .mobile-toggle{display:grid}
+.app-shell .sidebar{display:none;position:fixed;left:0;top:0;bottom:0;width:280px;max-width:86vw;padding:25px 18px;background:#f8fbfa;overflow-y:auto;overflow-x:hidden;z-index:80;box-shadow:20px 0 60px #00063d26;border-radius:0 22px 22px 0;flex-direction:column}
+.app-shell .sidebar.mobile-open{display:flex;animation:drawer-in .2s ease-out}
+@keyframes drawer-in{from{transform:translateX(-24px);opacity:0}to{transform:none;opacity:1}}
+.app-shell .sidebar-scrim{display:block;z-index:70}
+.app-shell .mobile-close{display:grid}
+.app-shell .sidebar-brand{display:flex;padding:0 0 23px}
+.app-shell .sidebar .workspace-switch{display:flex;border-radius:12px}
+.app-shell .sidebar .role-switch{display:flex;border-radius:24px;margin:13px 0 23px;padding:3px}
+.app-shell .sidebar .role-switch button{border-radius:22px;padding:10px}
+.app-shell .sidebar-label{display:block}
+.app-shell .sidebar nav{align-items:stretch;gap:5px}
+.app-shell .sidebar nav a,.app-shell .sidebar-setting{width:100%;height:42px;min-height:42px;border-radius:12px;justify-content:flex-start;padding:0 12px;gap:12px;border:0}
+.app-shell .sidebar .rail-label{display:inline;position:static;transform:none;padding:0;background:none;color:inherit;visibility:visible;opacity:1;box-shadow:none;pointer-events:auto}
+.app-shell .sidebar-bottom{display:flex;flex-direction:column;align-items:stretch;margin-top:auto;padding-top:20px;gap:5px}
+.app-shell .sidebar-app{display:grid;border-radius:14px}
+.app-shell .sidebar .user-row{display:flex}
+.app-shell .sidebar .nav-count,.app-shell .sidebar .nav-dot{position:static;margin-left:auto}
+@media(prefers-reduced-motion:reduce){.app-shell .sidebar.mobile-open{animation:none}}

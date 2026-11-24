@@ -80,6 +80,9 @@ export const account={
  recoverable:token=>get('/v1/recoverable',token),
  recover:(token,escrowId)=>post(`/v1/escrows/${escrowId}/recover`,token),
  recoverJob:(token,jobId)=>post(`/v1/escrows/job/${jobId}/recover`,token),
+ pairingCode:token=>post('/v1/pairing/codes',token),
+ devices:token=>get('/v1/devices',token),
+ removeDevice:(token,id)=>api(`/v1/devices/${id}`,{method:'DELETE',token}),
  tipQuote:(token,subjectKind,subjectId)=>get(`/v1/tips/quote${q({subjectKind,subjectId})}`,token),
  tip:(token,body)=>post('/v1/tips',token,body),
 };

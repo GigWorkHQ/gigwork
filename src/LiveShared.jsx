@@ -53,3 +53,8 @@ export function ReviewStatus({review}){
 export function Countdown({until,prefix}){const[now,setNow]=useState(Date.now());useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t)},[]);const ms=new Date(until).getTime()-now;if(ms<=0)return <span>{prefix} expired</span>;const m=Math.floor(ms/60000),s=Math.floor(ms%60000/1000);return <span className="mono">{prefix} {m}:{String(s).padStart(2,'0')}</span>}
 
 export function useLoader(fn,deps){const[state,setState]=useState({data:null,error:'',loading:true});const live=useRef(true);const load=async()=>{setState(s=>({...s,loading:true,error:''}));try{const data=await fn();if(live.current)setState({data,error:'',loading:false})}catch(e){if(live.current)setState(s=>({...s,error:errorMessage(e),loading:false}))}};useEffect(()=>{live.current=true;load();return()=>{live.current=false}},deps);return {...state,reload:load}}
+
+// Links from the Android companion app open one item: /app/jobs?open=<id>. Read once, then removed from the URL.
+export function useOpenParam(apply,ready=true){
+ useEffect(()=>{if(!ready)return;let id=null;try{const url=new URL(window.location.href);id=url.searchParams.get('open');if(id){url.searchParams.delete('open');window.history.replaceState(null,'',url.pathname+url.search+url.hash)}}catch{}if(id&&/^[0-9a-f-]{36}$/i.test(id))apply(id)},[ready]);
+}

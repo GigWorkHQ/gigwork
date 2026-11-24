@@ -3,12 +3,13 @@ import {ArrowUpRight,ArrowRight,Check,Plus,ShieldCheck,Clock,Wallet,Lock,Refresh
 import {Button} from './main.jsx';
 import {Panel,Empty,Modal} from './Dashboard.jsx';
 import {gigs,errorMessage} from './api.js';
-import {useConfig,useLoader,date,day,who,SignInPrompt,ErrorNotice,TextAction,SubmitWork,FundTransfer,TipPanel,StatusPill,ReviewStatus,TxLink} from './LiveShared.jsx';
+import {useOpenParam,useConfig,useLoader,date,day,who,SignInPrompt,ErrorNotice,TextAction,SubmitWork,FundTransfer,TipPanel,StatusPill,ReviewStatus,TxLink} from './LiveShared.jsx';
 import {GIG_STATUS,MILESTONE_STATUS,PAYOUT_STATUS,validateGigDraft,gigPayload,fromRaw} from './live.js';
 
 export function LiveGigs({live,notify}){
  const{session}=live;const{config}=useConfig();
  const[tab,setTab]=useState(session?'mine':'open'),[creating,setCreating]=useState(false),[selected,setSelected]=useState(null);
+ useOpenParam(id=>setSelected({id}),Boolean(session));
  const open=useLoader(()=>gigs.open(),[]);
  const mine=useLoader(()=>session?gigs.mine(session.token):Promise.resolve(null),[session]);
  const refresh=()=>{open.reload();mine.reload()};

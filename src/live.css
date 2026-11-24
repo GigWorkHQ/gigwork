@@ -111,3 +111,5 @@
 .sidebar nav[aria-label="Preview navigation"]{margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}
 .wallet-reconnect{font-size:12px;white-space:nowrap}
 [data-rk]{font-family:inherit}
+.pair-code{display:grid;justify-items:center;gap:8px;margin-bottom:12px;padding:22px 16px;border:1px solid var(--line);border-radius:12px;background:var(--green);text-align:center}
+.pair-code b.mono{font-size:clamp(28px,7vw,40px);letter-spacing:.12em;color:var(--navy)}

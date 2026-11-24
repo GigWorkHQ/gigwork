@@ -104,7 +104,7 @@ export async function createSession(input: {
 declare global {
   namespace Express {
     interface Request {
-      auth?: { userId: string; walletAddress: string; viaApiKey?: boolean };
+      auth?: { userId: string; walletAddress: string; viaApiKey?: boolean; viaDevice?: boolean; sessionId?: string };
     }
   }
 }
@@ -124,13 +124,17 @@ export async function requireAuth(request: Request, _response: Response, next: N
       next();
       return;
     }
-    const result = await db.query<{ user_id: string; wallet_address: string }>(
-      `SELECT s.user_id,u.wallet_address FROM sessions s JOIN users u ON u.id=s.user_id
+    const result = await db.query<{ id: string; user_id: string; wallet_address: string; kind: string; last_used_at: Date | null }>(
+      `SELECT s.id,s.user_id,u.wallet_address,s.kind,s.last_used_at FROM sessions s JOIN users u ON u.id=s.user_id
        WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()`,
       [hashSessionToken(bearer)],
     );
     if (!result.rowCount) throw new ApiError(401, "invalid_session", "This session is invalid or expired.");
-    request.auth = { userId: result.rows[0].user_id, walletAddress: result.rows[0].wallet_address };
+    const session = result.rows[0];
+    request.auth = { userId: session.user_id, walletAddress: session.wallet_address, sessionId: session.id, viaDevice: session.kind === "device" };
+    // A paired phone shows "last used" on the web's device list; refreshed at most every five minutes.
+    if (session.kind === "device" && (!session.last_used_at || Date.now() - session.last_used_at.getTime() > 300_000))
+      void db.query("UPDATE sessions SET last_used_at=now() WHERE id=$1", [session.id]).catch(() => undefined);
     next();
   } catch (error) {
     next(error);
@@ -148,8 +152,8 @@ export function requireTeam(request: Request, _response: Response, next: NextFun
     next(new ApiError(403, "team_only", "Only an authorized GigWork team wallet can perform this action."));
     return;
   }
-  if (request.auth.viaApiKey) {
-    next(new ApiError(403, "wallet_session_required", "Team actions need a wallet sign-in; API keys cannot perform them."));
+  if (request.auth.viaApiKey || request.auth.viaDevice) {
+    next(new ApiError(403, "wallet_session_required", "Team actions need a wallet sign-in on the web; API keys and paired phones cannot perform them."));
     return;
   }
   next();
@@ -160,7 +164,18 @@ export async function revokeSession(request: Request) {
   if (bearer) await db.query("UPDATE sessions SET revoked_at=now() WHERE token_hash=$1", [hashSessionToken(bearer)]);
 }
 
+// Things only the browser where the wallet signed in may do: mint agent API keys and pair new phones. A paired phone
+// or an API key that could do these could copy itself onto more devices without the wallet ever being asked.
+export function requireBrowserWallet(request: Request, _response: Response, next: NextFunction) {
+  if (request.auth?.viaApiKey || request.auth?.viaDevice) {
+    next(new ApiError(403, "browser_wallet_required", "Do this on the web, signed in with your wallet."));
+    return;
+  }
+  next();
+}
+
 // Agent API keys act for their owner but cannot manage keys or sign out wallet sessions.
+// A paired phone passes: it was paired from a wallet session and acts as that account.
 export function requireWalletSession(request: Request, _response: Response, next: NextFunction) {
   if (request.auth?.viaApiKey) {
     next(new ApiError(403, "wallet_session_required", "Sign in with your wallet to do this; API keys cannot."));

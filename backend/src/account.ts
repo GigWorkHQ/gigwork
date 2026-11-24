@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { Router } from "express";
 import { erc20Abi, parseEventLogs, type Hash } from "viem";
 import { z } from "zod";
-import { createApiKey, isTeamWallet, requireAuth, requireTeam, requireWalletSession } from "./auth.js";
+import { createApiKey, isTeamWallet, requireAuth, requireBrowserWallet, requireTeam, requireWalletSession } from "./auth.js";
 import { config, stockExcludedCountries, stockTokens } from "./config.js";
 import { db } from "./db/index.js";
 import { parseHash, publicClient } from "./escrow.js";
@@ -62,7 +62,7 @@ accountRouter.put("/me/handle", requireWalletSession, asyncRoute(async (request,
 
 // ---------- Agent API keys ----------
 
-accountRouter.get("/me/api-keys", requireWalletSession, asyncRoute(async (request, response) => {
+accountRouter.get("/me/api-keys", requireBrowserWallet, asyncRoute(async (request, response) => {
   const keys = await db.query<{ id: string; label: string; prefix: string; created_at: Date; last_used_at: Date | null }>(
     "SELECT id,label,prefix,created_at,last_used_at FROM api_keys WHERE user_id=$1 AND revoked_at IS NULL ORDER BY created_at DESC",
     [request.auth!.userId],
@@ -70,7 +70,7 @@ accountRouter.get("/me/api-keys", requireWalletSession, asyncRoute(async (reques
   response.json({ data: keys.rows.map((k) => ({ id: k.id, label: k.label, prefix: k.prefix, createdAt: k.created_at, lastUsedAt: k.last_used_at })) });
 }));
 
-accountRouter.post("/me/api-keys", requireWalletSession, asyncRoute(async (request, response) => {
+accountRouter.post("/me/api-keys", requireBrowserWallet, asyncRoute(async (request, response) => {
   const label = z.string().trim().min(1).max(80).parse(request.body?.label);
   const active = await db.query<{ count: string }>("SELECT count(*)::text FROM api_keys WHERE user_id=$1 AND revoked_at IS NULL", [request.auth!.userId]);
   if (Number(active.rows[0].count) >= 10) throw new ApiError(409, "too_many_keys", "Revoke an existing key before creating another (limit 10).");
@@ -78,7 +78,7 @@ accountRouter.post("/me/api-keys", requireWalletSession, asyncRoute(async (reque
   response.status(201).json({ data: await createApiKey(request.auth!.userId, label) });
 }));
 
-accountRouter.delete("/me/api-keys/:id", requireWalletSession, asyncRoute(async (request, response) => {
+accountRouter.delete("/me/api-keys/:id", requireBrowserWallet, asyncRoute(async (request, response) => {
   await db.query("UPDATE api_keys SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL", [uuid.parse(request.params.id), request.auth!.userId]);
   response.status(204).end();
 }));

@@ -1,0 +1,215 @@
+name: Android companion app
+
+# Same flow as Tera's Android build. Every push to main that touches android/ (or the web files the app shares)
+# builds a GigWork Preview APK with its JavaScript bundled, checks the APK's identity, and publishes it with a
+# version manifest (its SHA-256, computed in this run) to the android-preview release. The web app's
+# "Download for Android" button and the in-app updater both read that release through the API.
+# A manual run with signed_release=true builds the production app from the release keystore secrets.
+
+on:
+  push:
+    branches: [main]
+    paths: ["android/**", "src/live.js", "public/assets/mascots/**", ".github/workflows/android.yml"]
+  pull_request:
+    paths: ["android/**", "src/live.js", "public/assets/mascots/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+    inputs:
+      signed_release:
+        description: Build a production-signed APK and publish it to the android-production release (main only; needs signing secrets)
+        type: boolean
+        default: false
+      release_notes:
+        description: Notes shown in the app for this release
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository == 'gigworkhq/gigwork'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: android
+    env:
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_PUBLIC_API_URL: https://gigwork-api-uhpj.onrender.com
+      EXPO_PUBLIC_WEB_URL: https://www.gigworkhq.com
+      PUBLISH_PREVIEW: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      PUBLISH_PRODUCTION: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.signed_release }}
+      GIGWORK_SIGNED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.signed_release && 'true' || 'false' }}
+      GIGWORK_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Check release configuration
+        if: ${{ env.PUBLISH_PRODUCTION == 'true' }}
+        env:
+          RELEASE_CERT: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+        run: |
+          if [ -z "$RELEASE_CERT" ]; then
+            echo "::error::Set the ANDROID_RELEASE_CERT_SHA256 repository variable before a production release."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Ubuntu runners ship an Android SDK; the setup action has failed intermittently in Tera's builds.
+      - name: Use runner Android SDK
+        run: |
+          test -n "$ANDROID_SDK_ROOT"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+
+      - run: bun install --frozen-lockfile
+
+      # Install the NDK React Native asks for before Gradle runs; Gradle's implicit download has produced corrupt
+      # archives before. The version is read from React Native, so an upgrade can't leave this on the wrong one.
+      - name: Install Android NDK
+        run: |
+          ndk="$(sed -n 's/^ndkVersion = "\(.*\)"$/\1/p' node_modules/react-native/gradle/libs.versions.toml)"
+          test -n "$ndk"
+          sdkmanager="$(find "$ANDROID_SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          for attempt in 1 2 3; do
+            rm -rf "$ANDROID_SDK_ROOT/ndk/$ndk"
+            if "$sdkmanager" --install "ndk;$ndk" >/dev/null && [ -x "$ANDROID_SDK_ROOT/ndk/$ndk/ndk-build" ]; then
+              echo "Installed NDK $ndk"; exit 0
+            fi
+            echo "::warning::NDK $ndk install attempt $attempt failed."
+          done
+          echo "::error::Could not install NDK $ndk."; exit 1
+
+      - run: bun run check && bun test tests
+      - run: bun run export
+      - run: bun run prebuild
+
+      # The dex-merging worker JVM is sized from gradle.properties, which prebuild regenerates every run.
+      - name: Raise the Gradle worker memory ceiling
+        run: |
+          cd android
+          if grep -q '^org.gradle.jvmargs=' gradle.properties; then
+            sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=2048m -XX:+ExitOnOutOfMemoryError/' gradle.properties
+          else
+            echo 'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=2048m -XX:+ExitOnOutOfMemoryError' >> gradle.properties
+          fi
+
+      - name: Build preview APK
+        if: ${{ env.GIGWORK_SIGNED_RELEASE != 'true' }}
+        env:
+          GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=2g -XX:+ExitOnOutOfMemoryError
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+          mkdir -p ../../artifacts
+          cp app/build/outputs/apk/release/app-release.apk ../../artifacts/gigwork-android-preview.apk
+
+      # Preview is signed with Expo's development key from the prebuild template. Set ANDROID_PREVIEW_CERT_SHA256 to
+      # stop the run if that key ever changes, rather than publish a file installed previews would refuse.
+      - name: Check preview APK identity
+        if: ${{ env.GIGWORK_SIGNED_RELEASE != 'true' }}
+        working-directory: .
+        env:
+          PREVIEW_CERT: ${{ vars.ANDROID_PREVIEW_CERT_SHA256 }}
+        run: bash android/scripts/verify-apk.sh artifacts/gigwork-android-preview.apk com.gigworkhq.android.preview "$GITHUB_RUN_NUMBER" "$PREVIEW_CERT"
+
+      - name: Build signed release
+        if: ${{ env.GIGWORK_SIGNED_RELEASE == 'true' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=2g -XX:+ExitOnOutOfMemoryError
+        run: |
+          export GIGWORK_KEYSTORE_PATH="$RUNNER_TEMP/gigwork-release.jks"
+          trap 'rm -f "$GIGWORK_KEYSTORE_PATH"' EXIT
+          test -n "$ANDROID_KEYSTORE_BASE64" || { echo "::error::ANDROID_KEYSTORE_BASE64 is not set."; exit 1; }
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "::error::ANDROID_KEYSTORE_PASSWORD is not set."; exit 1; }
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > "$GIGWORK_KEYSTORE_PATH"
+          test -s "$GIGWORK_KEYSTORE_PATH"
+          export ANDROID_KEY_PASSWORD="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+          printf '\napply from: "../../scripts/signing.gradle"\n' >> android/app/build.gradle
+          cd android
+          ./gradlew assembleRelease --no-daemon
+          mkdir -p ../../artifacts
+          cp app/build/outputs/apk/release/app-release.apk ../../artifacts/gigwork-android.apk
+
+      - name: Check production APK identity
+        if: ${{ env.PUBLISH_PRODUCTION == 'true' }}
+        working-directory: .
+        env:
+          RELEASE_CERT: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+        run: bash android/scripts/verify-apk.sh artifacts/gigwork-android.apk com.gigworkhq.android "$GITHUB_RUN_NUMBER" "$RELEASE_CERT"
+
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: gigwork-android-${{ github.run_number }}
+          path: ${{ github.workspace }}/artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Write the preview version manifest
+        if: ${{ env.PUBLISH_PREVIEW == 'true' }}
+        env:
+          GIGWORK_CHANNEL: preview
+          GIGWORK_MIN_SUPPORTED: ${{ vars.ANDROID_MIN_SUPPORTED_VERSION_CODE || '1' }}
+          GIGWORK_NOTES: ${{ github.event.head_commit.message }}
+        run: node scripts/release-manifest.mjs ../artifacts/gigwork-android-preview.apk ../artifacts/gigwork-android-preview.json
+
+      # The APK goes up before its manifest: in between, the old manifest's digest doesn't match the new file, so a
+      # phone refuses it rather than installing it.
+      - name: Publish preview release
+        if: ${{ env.PUBLISH_PREVIEW == 'true' }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android-preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create android-preview --repo "$GITHUB_REPOSITORY" --title "GigWork for Android (preview)" \
+              --notes "Latest GigWork for Android build. Download it from the GigWork web app: Account, GigWork on your phone." --prerelease --latest=false
+          gh release upload android-preview artifacts/gigwork-android-preview.apk --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload android-preview artifacts/gigwork-android-preview.json --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Write the production version manifest
+        if: ${{ env.PUBLISH_PRODUCTION == 'true' }}
+        env:
+          GIGWORK_CHANNEL: production
+          GIGWORK_MIN_SUPPORTED: ${{ vars.ANDROID_PRODUCTION_MIN_SUPPORTED_VERSION_CODE || '1' }}
+          GIGWORK_NOTES: ${{ inputs.release_notes }}
+        run: node scripts/release-manifest.mjs ../artifacts/gigwork-android.apk ../artifacts/gigwork-android.json
+
+      - name: Publish production release
+        if: ${{ env.PUBLISH_PRODUCTION == 'true' }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android-production --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create android-production --repo "$GITHUB_REPOSITORY" --title "GigWork for Android" \
+              --notes "Signed GigWork for Android. Installs over com.gigworkhq.android only." --latest=false
+          gh release upload android-production artifacts/gigwork-android.apk --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload android-production artifacts/gigwork-android.json --repo "$GITHUB_REPOSITORY" --clobber

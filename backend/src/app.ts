@@ -17,6 +17,8 @@ import { reviewsRouter, teamReviewsRouter } from "./reviews.js";
 import { rateLimit } from "./ratelimit.js";
 import { recoveryRouter } from "./recovery.js";
 import { opsStatus } from "./ops.js";
+import { mobileRouter } from "./mobile.js";
+import { pairInput, pairingRouter, redeemPairingCode } from "./pairing.js";
 
 const app = express();
 app.set("trust proxy", config.TRUST_PROXY);
@@ -74,6 +76,11 @@ authRouter.post("/logout", requireAuth, requireWalletSession, asyncRoute(async (
   await revokeSession(request);
   response.status(204).end();
 }));
+// The Android companion app trades a pairing code from the web for a device session. Under /v1/auth, so it shares
+// the sign-in rate limit, which is what makes guessing codes hopeless.
+authRouter.post("/pair", asyncRoute(async (request, response) => {
+  response.status(201).json({ data: await redeemPairingCode(pairInput.parse(request.body ?? {})) });
+}));
 authRouter.get("/me", requireAuth, (request, response) => response.json({ data: request.auth }));
 
 const cronRouter = Router();
@@ -99,7 +106,9 @@ app.use("/v1/gigs", gigsRouter);
 app.use("/v1/contracts", contractsRouter);
 app.use("/v1/reviews", reviewsRouter);
 app.use("/v1/public", publicRouter);
+app.use("/v1/mobile", mobileRouter);
 app.use("/v1", recoveryRouter);
+app.use("/v1", pairingRouter);
 app.use("/v1", accountRouter);
 app.use((_request, _response, next) => next(new ApiError(404, "not_found", "This endpoint does not exist.")));
 app.use(errorHandler);

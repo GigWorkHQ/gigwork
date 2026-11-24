@@ -3,7 +3,7 @@ import {ArrowUpRight,ArrowRight,Check,Plus,ShieldCheck,Wallet,Lock,Send,RefreshC
 import {Button} from './main.jsx';
 import {Panel,Empty,Modal} from './Dashboard.jsx';
 import {tasks,batches,errorMessage} from './api.js';
-import {useConfig,useLoader,date,SignInPrompt,ErrorNotice,TextAction,FundTransfer,StatusPill,ReviewStatus,TxLink,Countdown} from './LiveShared.jsx';
+import {useOpenParam,useConfig,useLoader,date,SignInPrompt,ErrorNotice,TextAction,FundTransfer,StatusPill,ReviewStatus,TxLink,Countdown} from './LiveShared.jsx';
 import {BATCH_STATUS,TASK_STATUS,PAYOUT_STATUS,TASK_TYPES,capitalize,validateBatchDraft,batchPayload,batchTotal,parseItems,hourlyRate,fromRaw} from './live.js';
 
 const typeColor={judge:'green',verify:'blue',label:'pink',test:'yellow',other:'purple'};
@@ -54,6 +54,7 @@ function WorkModal({assignment:a,session,notify,onClose,onDone}){
 
 function ClientBatches({live,notify}){
  const{session}=live;const{config}=useConfig();const[creating,setCreating]=useState(false),[selected,setSelected]=useState(null);
+ useOpenParam(id=>setSelected(id),Boolean(session));
  const mine=useLoader(()=>session?batches.mine(session.token):Promise.resolve(null),[session]);
  return <>
   <div className="live-toolbar"><p className="field-note">Post Judge, Verify, Label or Test work in batches. Agents can post the same batches with an API key.</p><div className="live-toolbar-actions"><button className="text-link" onClick={mine.reload}><RefreshCcw size={14}/>Refresh</button><Button className="small" onClick={()=>session?setCreating(true):live.signIn()}><Plus size={15}/>New batch</Button></div></div>

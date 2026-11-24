@@ -1,5 +1,5 @@
 import React,{useState,useEffect,useRef} from 'react';
-import {RefreshCcw,Share2,Trash2,KeyRound,Gift,AtSign,Coins,Heart,TriangleAlert,ExternalLink} from 'lucide-react';
+import {RefreshCcw,Share2,Trash2,KeyRound,Gift,AtSign,Coins,Heart,TriangleAlert,ExternalLink,Smartphone,Download} from 'lucide-react';
 import {Button} from './main.jsx';
 import {Panel,Empty} from './Dashboard.jsx';
 import {account,jobs,API_BASE,errorMessage} from './api.js';
@@ -40,7 +40,7 @@ export function LiveEarnings({live,notify,client}){
 export function LiveAccountSettings({live,notify}){
  const{session}=live;
  if(!session)return <Panel title="Account"><SignInPrompt live={live} text="Sign in with your wallet to set your pay handle, referrals, payout choice and API keys."/></Panel>;
- return <><HandlePanel live={live} notify={notify}/><PayoutPanel session={session} notify={notify}/><ReferralPanel session={session} notify={notify}/><RecoverPanel session={session} notify={notify}/><ApiKeyPanel session={session} notify={notify}/></>;
+ return <><HandlePanel live={live} notify={notify}/><PayoutPanel session={session} notify={notify}/><ReferralPanel session={session} notify={notify}/><PhonePanel session={session} notify={notify}/><RecoverPanel session={session} notify={notify}/><ApiKeyPanel session={session} notify={notify}/></>;
 }
 
 function HandlePanel({live,notify}){
@@ -65,6 +65,23 @@ function PayoutPanel({session,notify}){
    <p className="field-note">Not available to residents of {o.excludedCountries.join(', ')}.</p>
    <Button type="submit" className="small" disabled={busy||!d.country}>{busy?'Saving…':'Save payout choice'}</Button>
   </form>}
+ </Panel>;
+}
+
+// The Android companion app. It never holds a wallet: it pairs to this account with a one-time code made here.
+export const ANDROID_DOWNLOAD=`${API_BASE}/v1/mobile/android/download`;
+function PhonePanel({session,notify}){
+ const devices=useLoader(()=>account.devices(session.token),[]);const[code,setCode]=useState(null),[busy,setBusy]=useState(false),[now,setNow]=useState(Date.now());
+ const left=code?Math.max(0,Math.round((new Date(code.expiresAt).getTime()-now)/1000)):0;
+ useEffect(()=>{if(!code)return;const tick=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(tick)},[code]);
+ // While a code is showing, watch for the phone to appear, then hide the code.
+ useEffect(()=>{if(!code||left<=0)return;const before=new Set((devices.data||[]).map(d=>d.id));const poll=setInterval(async()=>{try{const list=await account.devices(session.token);const added=list.find(d=>!before.has(d.id));if(added){setCode(null);devices.reload();notify(`${added.name} is paired.`)}}catch{}},4000);return()=>clearInterval(poll)},[code,left>0]);
+ async function makeCode(){if(busy)return;setBusy(true);try{setCode(await account.pairingCode(session.token));setNow(Date.now())}catch(e){notify(errorMessage(e))}finally{setBusy(false)}}
+ return <Panel title="GigWork on your phone" subtitle="The Android app is a companion to this account. It never holds your wallet: pair it with a one-time code, then find and claim work, submit, review and release, and follow your pay. Funding escrow and tips stay here, with your wallet." action={<a className="text-link" href={ANDROID_DOWNLOAD}><Download size={14}/>Download for Android</a>}>
+  {code&&left>0?<div className="pair-code"><span className="field-note">In the app, tap <b>Pair with the web</b> and enter</span><b className="mono">{code.code}</b><span className="field-note">Expires in {Math.floor(left/60)}:{String(left%60).padStart(2,'0')} · use it once</span><button className="text-link" onClick={()=>setCode(null)}>Cancel</button></div>
+   :<div className="handle-current"><Smartphone size={18}/><span>{devices.data?.length?`${devices.data.length} paired phone${devices.data.length>1?'s':''}`:'No phone paired yet'}</span><Button className="small" disabled={busy} onClick={makeCode}>{busy?'Making a code…':'Get a pairing code'}</Button></div>}
+  {devices.error?<ErrorNotice message={devices.error} onRetry={devices.reload}/>:devices.data?.length>0&&<ol className="live-events">{devices.data.map(d=><li key={d.id}><span className="mono">{day(d.pairedAt)}</span>{d.name}{d.lastUsedAt?` · last used ${date(d.lastUsedAt)}`:' · not used yet'} <button className="text-link" onClick={async()=>{try{await account.removeDevice(session.token,d.id);notify(`${d.name} was unpaired and signed out.`);devices.reload()}catch(e){notify(errorMessage(e))}}}><Trash2 size={13}/>Remove</button></li>)}</ol>}
+  <p className="field-note">Android only for now. If Android warns about installing an app from outside the Play Store, allow it once for your browser. The app updates itself after that, and checks each update against its published fingerprint before installing it.</p>
  </Panel>;
 }
 

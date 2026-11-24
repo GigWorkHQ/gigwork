@@ -1,0 +1,37 @@
+{
+  "name": "gigwork-android",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "check": "tsc --noEmit",
+    "test": "bun test tests",
+    "export": "expo export --platform android",
+    "prebuild": "expo prebuild --platform android --no-install"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.16",
+    "@noble/hashes": "1.8.0",
+    "expo": "~57.0.27",
+    "expo-application": "^57.0.3",
+    "expo-file-system": "~57.0.0",
+    "expo-font": "~57.0.4",
+    "expo-haptics": "~57.0.3",
+    "expo-intent-launcher": "^57.0.1",
+    "expo-linear-gradient": "~57.0.2",
+    "expo-secure-store": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.4",
+    "lucide-react-native": "1.70.0",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "bun-types": "1.4.2",
+    "typescript": "~6.0.3"
+  }
+}

@@ -8,7 +8,7 @@ import {signMessage,shortAddress,setProvider} from './wallet.js';
 import {useAccount,useDisconnect} from 'wagmi';
 import {useConnectModal} from '@rainbow-me/rainbowkit';
 import {availableActions,roleIn,statusLabel,statusColor,validateJobDraft,jobPayload,lines} from './live.js';
-import {useConfig,date,SignInPrompt,ErrorNotice,TextAction,SubmitWork,Timeline,FundTransfer,TipPanel,ReviewStatus} from './LiveShared.jsx';
+import {useOpenParam,useConfig,date,SignInPrompt,ErrorNotice,TextAction,SubmitWork,Timeline,FundTransfer,TipPanel,ReviewStatus} from './LiveShared.jsx';
 export {useConfig,Timeline} from './LiveShared.jsx';
 
 export const JobStatus=({value})=><Pill color={statusColor(value)}>{['ready','completed'].includes(value)&&<Check size={11}/>}{statusLabel(value)}</Pill>;
@@ -48,6 +48,7 @@ function JobTable({items,wallet,onOpen}){return <div className="work-table"><div
 export function LiveJobs({live,notify}){
  const{session}=live;const{config,configError}=useConfig();
  const[tab,setTab]=useState(session?'mine':'open'),[open,setOpen]=useState({items:[],page:0,more:true,loading:false,error:''}),[mine,setMine]=useState({items:null,loading:false,error:''}),[selected,setSelected]=useState(null),[creating,setCreating]=useState(false);
+ useOpenParam(id=>{jobs.get(session.token,id).then(setSelected).catch(()=>{})},Boolean(session));
  const loadOpen=useCallback(async(page=1)=>{setOpen(s=>({...s,loading:true,error:''}));try{const r=await jobs.ready(page,30);setOpen(s=>({items:page===1?r.data:[...s.items,...r.data.filter(j=>!s.items.some(x=>x.id===j.id))],page,more:r.data.length===r.limit,loading:false,error:''}))}catch(e){setOpen(s=>({...s,loading:false,error:errorMessage(e)}))}},[]);
  const loadMine=useCallback(async()=>{if(!session)return;setMine(s=>({...s,loading:true,error:''}));try{setMine({items:await jobs.mine(session.token),loading:false,error:''})}catch(e){setMine(s=>({...s,loading:false,error:errorMessage(e)}))}},[session]);
  useEffect(()=>{loadOpen(1)},[loadOpen]);

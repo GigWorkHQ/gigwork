@@ -5,3 +5,7 @@ dist/
 backend/.env
 technical-docs/
 
+
+# Repo sync/mirror scripts stay local and are never committed.
+*sync-public*
+*sync-push*

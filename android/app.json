@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "GigWork",
+    "slug": "gigwork",
+    "version": "1.0.0",
+    "icon": "./assets/brand/icon.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#00063d",
+    "scheme": "gigwork",
+    "android": {
+      "package": "com.gigworkhq.android",
+      "versionCode": 1,
+      "allowBackup": false,
+      "adaptiveIcon": { "foregroundImage": "./assets/brand/adaptive-foreground.png", "backgroundColor": "#00063d" },
+      "blockedPermissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO"
+      ]
+    },
+    "plugins": ["expo-secure-store", "expo-font"],
+    "updates": { "enabled": false }
+  }
+}

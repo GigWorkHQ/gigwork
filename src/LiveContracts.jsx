@@ -3,13 +3,14 @@ import {ArrowUpRight,ArrowRight,Check,Plus,ShieldCheck,Calendar,RefreshCcw,X,Tre
 import {Button} from './main.jsx';
 import {Panel,Empty,Modal} from './Dashboard.jsx';
 import {contracts,errorMessage} from './api.js';
-import {useConfig,useLoader,date,day,who,SignInPrompt,ErrorNotice,TextAction,FundTransfer,TipPanel,StatusPill,TxLink} from './LiveShared.jsx';
+import {useOpenParam,useConfig,useLoader,date,day,who,SignInPrompt,ErrorNotice,TextAction,FundTransfer,TipPanel,StatusPill,TxLink} from './LiveShared.jsx';
 import {CONTRACT_STATUS,PERIOD_STATUS,PAYOUT_STATUS,validateContractDraft} from './live.js';
 
 const periodName={7:'week',14:'two weeks',30:'30 days'};
 
 export function LiveContracts({live,notify}){
  const{session}=live;const{config}=useConfig();const[creating,setCreating]=useState(false),[selected,setSelected]=useState(null);
+ useOpenParam(id=>setSelected(id),Boolean(session));
  const mine=useLoader(()=>session?contracts.mine(session.token):Promise.resolve(null),[session]);
  const offers=mine.data?.filter(c=>c.status==='offered'&&c.role==='worker').length||0;
  return <>

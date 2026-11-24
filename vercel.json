@@ -1,3 +1,15 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/android",
+      "destination": "https://gigwork-api-uhpj.onrender.com/v1/mobile/android/download",
+      "permanent": false
+    }
+  ]
 }

@@ -3,7 +3,7 @@ body:has(.app-shell){background:radial-gradient(ellipse at 0 0,#ffcbb47a,transpa
 .app-shell{--sidebar:72px;margin:24px;min-height:calc(100vh - 48px);border:1px solid #ffffffd9;border-radius:30px;background:linear-gradient(135deg,#f7f9f8f0,#eff6fcf5);box-shadow:0 22px 70px #00063d08;position:relative}
 .app-body{min-height:calc(100vh - 50px);margin-left:var(--sidebar)}
 .sidebar{left:34px;top:145px;bottom:48px;width:54px;padding:0 5px;background:transparent;border:0;overflow:visible;z-index:35;transform:none}
-.sidebar-brand,.sidebar .workspace-switch,.sidebar .role-switch,.sidebar-label,.sidebar-help,.sidebar .user-row{display:none}
+.sidebar-brand,.sidebar .workspace-switch,.sidebar .role-switch,.sidebar-label,.sidebar-help,.sidebar-app,.sidebar .user-row{display:none}
 .sidebar nav{gap:10px;align-items:center}
 .sidebar nav a,.sidebar-setting{width:36px;height:36px;min-height:36px;padding:0;justify-content:center;border-radius:50%;background:#ffffffba;border:1px solid #00063d08;position:relative;color:#697282;flex-shrink:0}
 .sidebar nav a.active{background:var(--navy);box-shadow:0 4px 12px #00063d15}

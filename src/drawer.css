@@ -30,3 +30,7 @@
 .app-shell .app-topbar .mobile-toggle{width:34px;height:34px;padding:0;place-items:center;border-radius:10px;border:1px solid var(--line);background:white;color:var(--navy)}
 .app-shell .app-topbar .mobile-toggle:hover{background:var(--navy);color:white;border-color:var(--navy)}
 .app-shell .app-topbar .mobile-toggle svg{width:17px;height:17px}
+/* "No funded work" empty state: span the whole board instead of one grid column, with a heading sized for a card. */
+.app-shell .board-stack .board-empty{grid-column:1/-1;width:100%;padding:28px 16px}
+.app-shell .board-stack .board-empty h3{font-size:clamp(19px,5vw,24px);line-height:1.15;max-width:320px}
+.app-shell .board-stack .board-empty p{font-size:13px;max-width:320px}

@@ -23,3 +23,9 @@
 .app-shell .sidebar .user-row{display:flex}
 .app-shell .sidebar .nav-count,.app-shell .sidebar .nav-dot{position:static;margin-left:auto}
 @media(prefers-reduced-motion:reduce){.app-shell .sidebar.mobile-open{animation:none}}
+/* The menu button lives in the top bar's breadcrumb, which is hidden on wide screens: show the breadcrumb (button
+   only) at every width, at the left of the bar. */
+.app-shell .app-topbar .breadcrumb{display:flex;order:-1;gap:0;margin-right:10px}
+.app-shell .app-topbar .breadcrumb>span,.app-shell .app-topbar .breadcrumb>svg,.app-shell .app-topbar .breadcrumb>b{display:none}
+.app-shell .app-topbar .mobile-toggle{width:44px;height:44px;place-items:center;border-radius:14px;border:1px solid var(--line);background:white;color:var(--navy)}
+.app-shell .app-topbar .mobile-toggle:hover{background:var(--navy);color:white;border-color:var(--navy)}

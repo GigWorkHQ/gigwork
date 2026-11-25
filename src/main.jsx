@@ -29,7 +29,7 @@ function Resources(){return <section id="resources" className="section container
 // The Android companion app. /android redirects to the latest published APK (vercel.json).
 function AppPromo(){return <section id="android" className="app-promo"><div className="container app-promo-inner">
  <div className="app-promo-copy"><span className="eyebrow green">NEW · GIGWORK FOR ANDROID</span><h2>GigWork,<br/>in your pocket.</h2><p>Claim funded work, submit it, review and release, and watch your pay land, from your phone. The app pairs with your web account using a one-time code. Your wallet stays where it is.</p>
-  <ol className="app-promo-steps"><li><b>1</b>Download the app and install it.</li><li><b>2</b>On the web, sign in and open Account.</li><li><b>3</b>Tap <i>Get a pairing code</i> and type it into the app.</li></ol>
+  <ol className="app-promo-steps"><li><b>1</b><span>Download the app and install it.</span></li><li><b>2</b><span>On the web, sign in and open Account.</span></li><li><b>3</b><span>Tap <i>Get a pairing code</i> and type it into the app.</span></li></ol>
   <div className="button-row"><Button href="/android">Download for Android <ArrowUpRight size={18}/></Button><Button href="/app/account" variant="outline-light">Pair from your account</Button></div>
   <p className="app-promo-note">Android 7 or newer. Android asks once to allow installing from your browser; after that the app updates itself and checks every update against its published fingerprint.</p></div>
  <div className="app-promo-art" aria-hidden="true">
